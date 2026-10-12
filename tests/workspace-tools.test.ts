@@ -40,9 +40,9 @@ test('unbounded guest loops are interrupted promptly and cannot return partial f
 });
 
 test('guest allocations are restricted by the configured memory cap', async () => {
-  const start = Date.now();
-  await assert.rejects(() => runCode(`const blocks=[]; while(true) blocks.push(new Array(1_000_000).fill('memory'));`, {}, 1500), /memory|内存|alloc|执行失败|interrupt/i);
-  assert.ok(Date.now() - start < 3500, 'memory abuse must be bounded');
+  const withinLimit = await runCode('console.log(new ArrayBuffer(4 * 1024 * 1024).byteLength)');
+  assert.equal(withinLimit.output, String(4 * 1024 * 1024));
+  await assert.rejects(() => runCode('new ArrayBuffer(64 * 1024 * 1024)'), /out of memory/i);
   assert.equal((await runCode('console.log("still healthy")')).output, 'still healthy');
 });
 

@@ -27,7 +27,6 @@
 - [发布与导出](#发布与导出)
 - [作者的话](#作者的话)
 - [许可证](#许可证)
-- [撰写说明](#撰写说明)
 
 ---
 
@@ -85,7 +84,7 @@
 
 更多参数细节见 [docs/INSTALL.md](docs/INSTALL.md)。
 
-> 本次本机验证在 Windows 完成；macOS / Linux 提供入口和 CI 校验流程，尚未在对应真机验证。
+> Windows 已完成本机安装验证。Windows、macOS、Linux 的远端安装、测试与构建结果请查看 [GitHub Actions](https://github.com/atiyit/palace/actions/workflows/ci.yml)；CI 覆盖当次运行环境，不代表所有系统版本和架构都已验证。
 
 **停止服务**：
 
@@ -379,12 +378,6 @@ AI 正在大幅降低创意复现的门槛，想法一旦公开就很难独占�
 ## 许可证
 
 本项目采用 [Unlicense](LICENSE)。原创代码、文档与可授权素材允许自由使用、修改、复制、分发和商用，无需额外许可，不强制署名，不附加商业限制。第三方依赖保持各自原许可，详见 [第三方许可声明](THIRD_PARTY_NOTICES.md)。
-
----
-
-## 撰写说明
-
-本 README、项目说明文档及核心代码注释由 Claude Opus 4.6 Thinking 通过自选 API 撰写并经事实核对。封面与项目标志使用内置 imagegen 工具生成：[封面提示词](docs/assets/imagegen-prompt.txt)　|　[标志提示词](docs/assets/logo-imagegen-prompt.txt)。公开文档不包含作者的私人 API 地址、密钥或请求记录。源码不含任何密钥。
 
 ---
 

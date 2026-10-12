@@ -37,7 +37,7 @@ chmod +x './一键安装并启动.command' './停止后宫.command'
 - 系统版本本身还需符合 [Node 24 的平台要求](https://github.com/nodejs/node/blob/v24.x/BUILDING.md#platform-list)。较旧的 macOS、Windows、Linux 内核或 glibc 可能无法运行官方二进制。
 - 首次安装需要访问 `nodejs.org` 和 npm 仓库。安装包不是离线包；没有绑定或自动下载大语言模型。使用本地 AI 时，还需主人自行启动 Ollama、LM Studio 或兼容服务。
 - Node 和依赖优先使用官方预编译包；特殊环境若需要从源码编译原生依赖，应按 npm 报错补齐系统编译工具。安装器不会自动安装系统级编译器。
-- **Windows 已在隔离目录完成实际验证**，包括官方 Node 24 下载与校验、全部依赖安装、doctor 检查、启动和构建。macOS 与 Linux 目前仅有静态脚本与 CI 工作流定义，尚未进行真机运行验证。具体的测试通过数量和 Node patch 版本会随迭代变化。
+- **Windows 已在隔离目录完成实际验证**，包括官方 Node 24 下载与校验、全部依赖安装、doctor 检查、启动和构建。仓库的 [GitHub Actions](https://github.com/atiyit/palace/actions/workflows/ci.yml) 在 Windows、macOS、Linux 环境执行安装、测试和构建，主人可查看每次运行的实际结果。验证范围是对应的运行环境，不代表所有系统版本和架构；测试数量和 Node patch 版本会随迭代变化。
 
 ## 再次启动与停止
 
