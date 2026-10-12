@@ -43,7 +43,7 @@ export async function readPublicProviderSettings(userId: string): Promise<Public
 }
 
 export async function saveProviderSettings(userId: string, kind: ProviderKind, input: ProviderUpdate): Promise<PublicProviderSettings> {
-  if (kind === 'text' && (input.referenceModel !== undefined || input.promptStyle !== undefined || input.customPrompt !== undefined)) throw new PalaceError('参考模型和图片提示词只适用于图片渠道。', 400, 'INVALID_PROVIDER_SETTINGS');
+  if (kind === 'text' && (input.referenceModel !== undefined || input.promptStyle !== undefined || input.customPrompt !== undefined || input.promptProfiles !== undefined)) throw new PalaceError('参考模型和图片提示词只适用于图片渠道。', 400, 'INVALID_PROVIDER_SETTINGS');
   const current = await resolveSnapshot(userId);
   const updated = prepareProviderUpdate(current[kind], input);
   if (kind === 'image' && (updated.protocol !== 'openai-chat' || input.visionEnabled !== undefined)) throw new PalaceError('图片渠道仅支持图片兼容协议，不能设置文本视觉开关。', 400, 'INVALID_PROVIDER_SETTINGS');

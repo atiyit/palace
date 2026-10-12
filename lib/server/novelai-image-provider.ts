@@ -110,8 +110,9 @@ export async function generateReferenceImage(
   config: Pick<EffectiveProviderConfig, "baseUrl" | "model" | "apiKey" | "local">,
   prompt: string,
   reference: PortraitReference,
+  negativePrompt?: string,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const request = await buildCharacterReferenceRequest(config.model, prompt, reference);
+  const request = await buildCharacterReferenceRequest(config.model, prompt, reference, negativePrompt);
   const endpoint = characterReferenceEndpoint(config.baseUrl, config.local);
   const trace = beginProviderTrace({ kind: "image", model: request.model, endpoint, prompt: request.body.input, negativePrompt: request.body.parameters.uc, reference: request.reference }, config.apiKey);
   const started = Date.now();

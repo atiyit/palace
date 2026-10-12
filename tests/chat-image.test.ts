@@ -73,8 +73,9 @@ test("chat generation receives the actual portrait reference object and persists
   const steps: string[] = [];
   const result = await attachChatImage(agent, reply, "女仆装手部特写", user.content, dependencies({
     reference: async selected => { assert.strictEqual(selected, agent); steps.push("reference"); return reference; },
-    generate: async (prompt, supplied) => {
+    generate: async (prompt, supplied, context) => {
       steps.push("generate"); assert.strictEqual(supplied, reference);
+      assert.strictEqual(context.agent, agent); assert.equal(context.request, '女仆装手部特写'); assert.equal(context.userMessage, user.content);
       assert.strictEqual(supplied.bytes, referenceBytes); assert.match(prompt, /女仆装手部特写/); return bytes;
     },
     store: async (generated, id) => { steps.push("store"); assert.strictEqual(generated, bytes); return `/api/portraits/chat-${id}`; },

@@ -9,6 +9,7 @@ import {
   type EffectiveProviderConfig,
 } from '../lib/server/provider-config-core.ts';
 import { providerSettingsRepository } from '../lib/server/provider-settings-repository.ts';
+import { createImagePromptProfile, MAX_IMAGE_NEGATIVE_PROMPT_CHARS } from '../lib/image-prompts.ts';
 
 // These are synthetic test fixtures, never read from local or hosted secrets.
 const secret = Buffer.from('0123456789abcdef0123456789abcdef', 'utf8').toString('base64');
@@ -16,6 +17,27 @@ const current: EffectiveProviderConfig = {
   baseUrl: 'https://text.example.com/v1', model: 'text-fixture',
   apiKey: 'unit-test-old-text-api-key', source: 'default',
 };
+
+test('image profiles validate complete independent slots and survive ordinary model changes', () => {
+  const defaults = providerDefaults({});
+  const promptProfiles = { generation: createImagePromptProfile('nai5'), reference: createImagePromptProfile('gpt-image') };
+  promptProfiles.reference.instructions = 'Keep my independently edited reference strategy.';
+  promptProfiles.reference.negativePrompt = 'avoid a duplicate subject';
+  const saved = prepareProviderUpdate(defaults.image, { promptProfiles });
+  const updated = prepareProviderUpdate({ ...saved, source: 'custom' }, { model: 'nai-diffusion-5-curated', apiKey: '' });
+  assert.deepEqual(updated.promptProfiles, promptProfiles);
+  assert.notEqual(updated.promptProfiles, promptProfiles);
+  assert.notEqual(updated.promptProfiles!.generation, promptProfiles.generation);
+  assert.deepEqual(maskProviderConfig({ ...updated, source: 'custom' }).promptProfiles, promptProfiles);
+  const legacy = prepareProviderUpdate({ ...saved, source: 'custom' }, { promptStyle: 'custom', customPrompt: 'My old {{prompt}} template' });
+  assert.equal(legacy.promptProfiles!.generation.positivePrompt, 'My old {{prompt}} template');
+  assert.equal(legacy.promptProfiles!.reference.llmEnabled, false);
+  assert.throws(() => imageProviderOptions('model', { promptProfiles: { ...promptProfiles, reference: undefined } as any }));
+  assert.throws(() => imageProviderOptions('model', { promptProfiles: { ...promptProfiles, generation: { ...promptProfiles.generation, llmEnabled: 'yes' } } as any }));
+  assert.throws(() => imageProviderOptions('model', { promptProfiles: { ...promptProfiles, reference: { ...promptProfiles.reference, negativePrompt: 'x'.repeat(MAX_IMAGE_NEGATIVE_PROMPT_CHARS + 1) } } }));
+  assert.throws(() => imageProviderOptions('model', { promptProfiles: { ...promptProfiles, reference: { ...promptProfiles.reference, instructions: 'a\x00b' } } }));
+  assert.throws(() => imageProviderOptions('model', { promptProfiles: { ...promptProfiles, reference: { ...promptProfiles.reference, sampler: 'unsupported' } } as any }));
+});
 
 test('provider base URLs normalize bare domains, standard ports, endpoint suffixes and trailing slashes', () => {
   assert.equal(normalizeBaseUrl('  api.example.com  '), 'https://api.example.com/v1');
@@ -205,7 +227,7 @@ test('new image settings persist separately while migrated legacy records remain
     const row = { userId: 'alice', kind: 'image' as const, baseUrl: 'https://image.example.com/v1', model: 'nai-diffusion-5-full', encryptedApiKey: 'encrypted-test-placeholder', updatedAt: '2026-10-12T00:00:00Z' };
     await repo.upsert(row); const legacy = await repo.get('alice', 'image');
     assert.equal(imageProviderOptions(legacy!.model, legacy!.imageOptions).referenceModel, 'nai-diffusion-4-5-full'); assert.deepEqual(legacy, row);
-    const updated = { ...row, imageOptions: { referenceModel: 'gpt-image-1', promptStyle: 'gpt-image' as const, customPrompt: 'Do not erase a previously saved custom template.' } };
+    const updated = { ...row, imageOptions: { referenceModel: 'gpt-image-1', promptStyle: 'gpt-image' as const, customPrompt: 'Do not erase a previously saved custom template.', promptProfiles: { generation: createImagePromptProfile('nai5'), reference: { ...createImagePromptProfile('gpt-image'), negativePrompt: 'My reference-only exclusions' } } } };
     await repo.upsert(updated); assert.deepEqual(await repo.get('alice', 'image'), updated);
     assert.equal((await repo.list('alice'))[0].imageOptions!.referenceModel, 'gpt-image-1');
   } finally { db.close(); }

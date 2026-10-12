@@ -85,7 +85,7 @@ test('real group routes create shared memories and return actual file and inline
   assert.equal(created.value.state.events.length, 1); assert.equal(created.value.state.events[0].actorType, 'user');
   for (const id of task.participants) assert.match(created.value.state.agents.find(agent => agent.id === id)!.memories.find(memory => memory.source === `task-group:${taskId}`)!.content, /公园路线/);
   assert.equal(calls.length, 0, 'creating the group and posting its initial request makes no provider call');
-  responses.push(write(), image, approved, finish(), approved); imageAllowed = true;
+  responses.push(write(), image, approved, { prompt: 'A green park walking map', negativePrompt: 'watermark' }, finish(), approved); imageAllowed = true;
   const stepped = await act('task.step', { taskId }); imageAllowed = false;
   assert.equal(stepped.status, 200); assert.equal(responses.length, 0);
   const updated = stepped.value.state.tasks.find(item => item.id === taskId)!;
@@ -103,7 +103,7 @@ test('real group routes create shared memories and return actual file and inline
   await env.BUCKET.put('artifacts/another-owner/foreign-file', new TextEncoder().encode('private'));
   assert.equal((await getArtifact('foreign-file')).status, 404, 'unreferenced foreign artifacts never download');
   const textCalls = calls.filter(call => call.url === textEndpoint);
-  assert.equal(textCalls.length, 5); assert.equal(calls.filter(call => call.url === imageEndpoint).length, 1);
+  assert.equal(textCalls.length, 6); assert.equal(calls.filter(call => call.url === imageEndpoint).length, 1);
   assert.equal(JSON.parse(textCalls[0].body.messages[1].content).mode, 'task-group');
   assert.equal(JSON.stringify(stepped.value.state).includes('group-text-test-only'), false);
   for (const id of task.participants) assert.match(stepped.value.state.agents.find(agent => agent.id === id)!.memories.find(memory => memory.source === `task-group:${taskId}`)!.content, /travel.md/);
@@ -151,7 +151,7 @@ test('group debug preview and execution use isolated artifacts without writing s
   env.BUCKET.put = async () => { writes++; throw new Error('debug must not write durable storage'); };
   let result: { status: number; value: DebugResult };
   try {
-    responses.push(write('sandbox-only.md', '沙盒草稿'), image, approved, finish('沙盒结果已生成。'), approved); imageAllowed = true;
+    responses.push(write('sandbox-only.md', '沙盒草稿'), image, approved, { prompt: 'A green park walking map', negativePrompt: 'watermark' }, finish('沙盒结果已生成。'), approved); imageAllowed = true;
     result = await post<DebugResult>(debug, '/api/debug', { action: 'run', stage: 'task', taskId, agentId: member });
   } finally { imageAllowed = false; env.BUCKET.put = originalPut; }
   assert.equal(result.status, 200); assert.equal(result.value.status, 'ok'); assert.equal(result.value.persisted, false); assert.equal(responses.length, 0);
@@ -176,4 +176,88 @@ test('removing a failed recruitment slot applies successful candidates without a
   assert.equal(result.value.state.recruitment!.slots[1].status, 'skipped'); assert.equal(result.value.state.recruitment!.applied, true);
   assert.ok(result.value.state.agents.some(agent => agent.id === candidateId)); assert.equal(calls.length, beforeCalls);
   const repeat = await act('recruit.skip', { batchId, slot: 2 }); assert.equal(repeat.status, 200); assert.equal(calls.length, beforeCalls);
+});
+
+test('API accepts unlimited budgets, all members or solo participation and explicit completion', async () => {
+  const configured = await act('settings', { memoryLimit: 0, groupToolLimit: 0, groupImageLimit: 0, groupArtifactLimit: 0 });
+  assert.equal(configured.status, 200);
+  for (const key of ['memoryLimit', 'groupToolLimit', 'groupImageLimit', 'groupArtifactLimit'] as const) assert.equal(configured.value.state.settings[key], 0);
+  for (const invalid of [-1, .5]) assert.equal((await act('settings', { memoryLimit: invalid })).status, 400);
+  await mutateState(userId, crypto.randomUUID(), createInitialState, async (saved: AppState) => {
+    while (saved.agents.length < 12) {
+      const member = structuredClone(saved.agents[0]); member.id = `large-group-${saved.agents.length}`; member.name = `成员${saved.agents.length}`; member.hired = false; member.memories = []; member.chats = [];
+      saved.agents.push(member);
+    }
+  });
+  for (const member of (await getState()).agents) assert.equal((await act('hire', { agentId: member.id })).status, 200);
+  const all = await act('task.create', { title: '全体共议', participantCount: 0, rounds: 0 });
+  assert.equal(all.status, 200); const allTask = all.value.state.tasks.find(task => task.id === all.value.taskId)!;
+  assert.equal(allTask.participants.length, 12); assert.equal(allTask.rounds, 0);
+  assert.equal((await act('task.finish', { taskId: allTask.id })).status, 200);
+  const finite = await act('task.create', { title: '允许超过三轮', participantCount: 7, rounds: 12 });
+  assert.equal(finite.status, 200); const finiteTask = finite.value.state.tasks.find(task => task.id === finite.value.taskId)!;
+  assert.equal(finiteTask.participants.length, 7); assert.equal(finiteTask.rounds, 12);
+  await act('task.finish', { taskId: finiteTask.id });
+  const solo = await act('task.create', { title: '单人持续整理', participantCount: 1, rounds: 0 });
+  assert.equal(solo.status, 200); const soloId = solo.value.taskId!;
+  responses.push(...Array.from({ length: 4 }, (_, index) => write(`chunk-${index}.md`, `内容${index}`)));
+  const first = await act('task.step', { taskId: soloId }); assert.equal(first.status, 200);
+  const firstTask = first.value.state.tasks.find(task => task.id === soloId)!;
+  assert.equal(firstTask.cursor, 0); assert.equal(firstTask.round, 1); assert.equal(firstTask.groupTurn?.toolCalls, 4);
+  assert.equal(firstTask.status, 'running'); const eventId = firstTask.groupTurn!.eventId;
+  const durable = (await getState()).tasks.find(task => task.id === soloId)!;
+  assert.equal(durable.groupTurn?.eventId, eventId); assert.equal(durable.artifacts!.length, 4);
+  responses.push(write('chunk-4.md'), finish('五份材料已存档。'), approved);
+  const second = await act('task.step', { taskId: soloId }); assert.equal(second.status, 200);
+  const secondTask = second.value.state.tasks.find(task => task.id === soloId)!;
+  assert.equal(secondTask.groupTurn, undefined); assert.equal(secondTask.status, 'running'); assert.equal(secondTask.round, 2);
+  assert.equal(second.value.state.events.at(-1)!.id, eventId); assert.equal(second.value.state.events.at(-1)!.artifactIds!.length, 5);
+  responses.push(...Array.from({ length: 4 }, (_, index) => write(`pending-${index}.md`)));
+  await act('task.step', { taskId: soloId });
+  const stopped = await act('task.finish', { taskId: soloId }); assert.equal(stopped.status, 200);
+  const stoppedTask = stopped.value.state.tasks.find(task => task.id === soloId)!;
+  assert.equal(stoppedTask.status, 'completed'); assert.equal(stoppedTask.groupTurn, undefined); assert.equal(stoppedTask.artifacts!.length, 9);
+  assert.equal(stopped.value.state.events.at(-1)!.actorType, 'system'); assert.equal(stopped.value.state.events.at(-1)!.artifactIds!.length, 4);
+  const continued = await act('task.continue', { taskId: soloId, rounds: 0 });
+  const continuedTask = continued.value.state.tasks.find(task => task.id === soloId)!;
+  assert.equal(continuedTask.rounds, 0); assert.equal(continuedTask.round, 3); assert.equal(continuedTask.status, 'paused');
+  await act('task.resume', { taskId: soloId });
+  responses.push({ invalid: true }, { invalid: true });
+  const failed = await act('task.step', { taskId: soloId }); assert.equal(failed.status, 200);
+  const failedTask = failed.value.state.tasks.find(task => task.id === soloId)!;
+  assert.equal(failedTask.status, 'paused'); assert.match(failedTask.lastError!, /未通过结构检查/);
+  await act('task.resume', { taskId: soloId });
+  responses.push(...Array.from({ length: 4 }, (_, index) => write(`recovered-${index}.md`)));
+  const recovered = await act('task.step', { taskId: soloId });
+  const recoveredTask = recovered.value.state.tasks.find(task => task.id === soloId)!;
+  assert.equal(recoveredTask.status, 'running'); assert.equal(recoveredTask.lastError, undefined);
+  assert.equal(recoveredTask.groupTurn?.toolCalls, 4);
+  await act('task.finish', { taskId: soloId });
+  assert.equal(responses.length, 0);
+});
+
+test('private chats, memories and task archives survive the previous storage limits', async () => {
+  const state = await getState(), agentId = state.agents[0].id;
+  await mutateState(userId, crypto.randomUUID(), createInitialState, async (saved: AppState) => {
+    const agent = saved.agents.find(member => member.id === agentId)!;
+    agent.memories = Array.from({ length: 100 }, (_, index) => ({ id: `old-memory-${index}`, kind: 'experience', content: `旧记忆${index}`, source: `old-source-${index}`, createdAt: saved.updatedAt }));
+    agent.chats = Array.from({ length: 42 }, (_, index) => ({ id: `old-chat-${index}`, role: index % 2 ? 'assistant' : 'user', content: `旧聊天${index}`, createdAt: saved.updatedAt }));
+    for (let index = 0; index < 40; index++) saved.tasks.push({ id: `archived-task-${index}`, title: '保留的旧事务', status: 'completed', rounds: 1, round: 1, participants: [agentId], order: [agentId], cursor: 1, createdAt: saved.updatedAt });
+    for (let index = 0; index < 2100; index++) saved.events.push({ id: `archive-event-${index}`, taskId: 'archived-task-0', round: 1, agentId, kind: 'propose', content: '保留历史'.repeat(200), checked: true, createdAt: saved.updatedAt });
+  });
+  const before = await getState(); assert.ok(Buffer.byteLength(JSON.stringify(before)) > 1_800_000);
+  const liked = await act('like', { agentId }); assert.equal(liked.status, 200);
+  assert.equal(liked.value.state.tasks.length, before.tasks.length); assert.equal(liked.value.state.events.length, before.events.length);
+  assert.equal(liked.value.state.agents.find(agent => agent.id === agentId)!.memories.length, 101);
+  await act('settings', { memoryLimit: 101 });
+  const limited = await act('appointment.set', { agentId, title: '档案整理人' }); assert.equal(limited.status, 200);
+  assert.equal(limited.value.state.agents.find(agent => agent.id === agentId)!.memories.length, 101);
+  await act('settings', { memoryLimit: 0 });
+  const unlimited = await act('appointment.remove', { agentId }); assert.equal(unlimited.status, 200);
+  assert.equal(unlimited.value.state.agents.find(agent => agent.id === agentId)!.memories.length, 102);
+  responses.push({ kind: 'submit', content: '我会记得这次聊天。', memories: [] }, approved);
+  const chatted = await act('chat', { agentId, message: '继续聊聊。' }); assert.equal(chatted.status, 200);
+  const chats = chatted.value.state.agents.find(agent => agent.id === agentId)!.chats;
+  assert.equal(chats.length, 44); assert.equal(chats[0].id, 'old-chat-0');
+  assert.equal(responses.length, 0);
 });

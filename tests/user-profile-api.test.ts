@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import sharp from 'sharp';
 import type { AppState, UserImage } from '../lib/types.ts';
+import { createImagePromptProfile } from '../lib/image-prompts.ts';
 
 const prefix = 'palace-user-profile-test-';
 const fixtureRoot = mkdtempSync(join(tmpdir(), prefix));
@@ -106,6 +107,15 @@ test('avatar uploads and generation use saved identity/channel options; profile 
   const sent = calls.at(-1)!; assert.equal(sent.url, imageEndpoint); assert.match(sent.body.prompt, /^PREFIX 阿遥 /); assert.match(sent.body.prompt, /round glasses/); assert.match(sent.body.prompt, /SUFFIX$/);
   const beforeCalls = calls.length;
   const replay = await setProfile({ action: 'avatar.generate', prompt: 'portrait with round glasses', requestId }); assert.equal(replay.value.replayed, true); assert.equal(calls.length, beforeCalls);
+  const custom = { ...createImagePromptProfile('custom'), llmEnabled: false, positivePrompt: '{{prompt}}\nAVATAR-SUFFIX', negativePrompt: 'avoid duplicate {{name}} / {{appearance}} / {{request}} / {{userMessage}}' };
+  await saveProviderSettings(userId, 'image', { promptProfiles: { generation: custom, reference: custom } });
+  allowedCall = 'image';
+  const lettered = await setProfile({ action: 'avatar.generate', prompt: 'hold a sign\nText: Welcome home' }); allowedCall = undefined;
+  assert.equal(lettered.status, 200);
+  const letteredBody = calls.at(-1)!.body;
+  assert.ok(letteredBody.prompt.endsWith('AVATAR-SUFFIX\nText: Welcome home'));
+  assert.equal(letteredBody.prompt.split('Text:').length - 1, 1);
+  assert.equal(letteredBody.negative_prompt, 'avoid duplicate 阿遥 / 喜欢做科幻小项目。 / hold a sign\nText: Welcome home / hold a sign\nText: Welcome home');
   const toSend = generated.value.state.userUploads![0];
   await mutateState(userId, crypto.randomUUID(), createInitialState, async (saved: AppState) => {
     saved.userUploads = saved.userUploads!.filter(item => item.id !== toSend.id);

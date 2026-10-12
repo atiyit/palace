@@ -16,6 +16,8 @@ const apiRoutes = new Map([
   ['/api/provider-settings', 'app/api/provider-settings/route.ts'],
   ['/api/user-profile', 'app/api/user-profile/route.ts'],
   ['/api/chat-uploads', 'app/api/chat-uploads/route.ts'],
+  ['/api/activity', 'app/api/activity/route.ts'],
+  ['/api/recruitment-ideas', 'app/api/recruitment-ideas/route.ts'],
 ]);
 let vite;
 
@@ -75,8 +77,8 @@ const server = createHttpServer(async (request, response) => {
     const artifact = /^\/api\/artifacts\/([a-zA-Z0-9_-]{1,100})$/.exec(url.pathname);
     const source = portrait ? 'app/api/portraits/[id]/route.ts' : artifact ? 'app/api/artifacts/[id]/route.ts' : apiRoutes.get(url.pathname);
     if (!source) return sendJson(response, 404, { error: '接口不存在。' });
-    const module = await vite.ssrLoadModule(join(project, source));
-    const handler = module[request.method];
+    const routeModule = await vite.ssrLoadModule(join(project, source));
+    const handler = routeModule[request.method];
     if (typeof handler !== 'function') return sendJson(response, 405, { error: '不支持的请求方法。' });
     const { withLocalRequest } = await vite.ssrLoadModule(join(project, 'local/auth.ts'));
     const body = request.method === 'POST' ? await readBody(request, ['/api/user-profile', '/api/chat-uploads'].includes(url.pathname) ? 14_000_000 + 16_384 : 400000) : undefined;

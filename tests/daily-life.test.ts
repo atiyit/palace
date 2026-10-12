@@ -205,16 +205,18 @@ test('provider outages leave the state unchanged, and absent membership avoids a
   assert.equal(run.calls.length, 0);
 });
 
-test('short-term history is bounded while established proposals and long-term memories remain', async () => {
+test('daily history and default memories are retained beyond former capacity limits', async () => {
   const state = members();
   state.dailyEvents = Array.from({ length: 200 }, (_, index) => event(`old-${index}`, state.agents[0].id));
   state.roleProposals = [proposal(state)];
   state.agents[0].memories = Array.from({ length: 100 }, (_, index) => ({ id: `m-${index}`, kind: 'experience', content: `旧记忆${index}`, source: `old-${index}`, createdAt: NOW }));
   const memories = structuredClone(state.agents[0].memories);
   await dailyStep(state, scripted([speech({ memories: [{ kind: 'experience', content: '新记忆不会清除旧记忆', source: 'daily-generated-1' }] }), pass]).deps);
-  assert.equal(state.dailyEvents.length, 200);
-  assert.equal(state.dailyEvents[0].id, 'old-1');
-  assert.deepEqual(state.agents[0].memories, memories);
+  assert.equal(state.dailyEvents.length, 201);
+  assert.equal(state.dailyEvents[0].id, 'old-0');
+  assert.deepEqual(state.agents[0].memories.slice(0, 100), memories);
+  assert.equal(state.agents[0].memories.length, 101);
+  assert.equal(dailyContext(state, state.agents[0], 'next').recentEvents.length, 30);
   assert.equal(state.roleProposals[0].id, 'role-1');
 });
 
@@ -227,4 +229,22 @@ test('historical approved proposal does not claim current office after direct ap
   state.agents[0].appointment!.title = '另一项新职位';
   assert.equal(privateRoleConsensus(state, saved).isOfficial, false);
   assert.equal(privateRoleConsensus(state, saved).formed, true);
+});
+
+test('solo daily steps and proposals beyond the former archive limit remain available', async () => {
+  const state = members(1);
+  state.roleProposals = Array.from({ length: 120 }, (_, index) => ({ ...proposal(state), id: `old-role-${index}`, title: `旧职位${index}` }));
+  const proposed = { holderId: state.agents[0].id, title: '新的自荐', duties: '整理资料', reason: '愿意开始整理' };
+  await dailyStep(state, scripted([speech({ kind: 'propose-role', proposal: proposed }), pass]).deps);
+  assert.equal(state.dailyEvents!.length, 1); assert.equal(state.roleProposals.length, 121);
+  assert.equal(state.roleProposals[0].id, 'old-role-0');
+  assert.equal(privateRoleConsensus(state, state.roleProposals.at(-1)!).formed, false);
+});
+
+test('configured personal memory capacity stops additions without deleting memories or daily history', async () => {
+  const state = members(1); state.settings.memoryLimit = 1;
+  state.agents[0].memories.push({ id: 'kept', kind: 'experience', content: '保留', source: 'old-source', createdAt: NOW });
+  await dailyStep(state, scripted([speech({ memories: [{ kind: 'experience', content: '新记忆', source: 'daily-generated-1' }] }), pass]).deps);
+  assert.equal(state.agents[0].memories.length, 1); assert.equal(state.agents[0].memories[0].id, 'kept');
+  assert.equal(state.dailyEvents!.length, 1);
 });

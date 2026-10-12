@@ -1,7 +1,8 @@
 "use client";
 
 import { AUTH_ERROR, IS_LOCAL_APP } from "@/components/runtime-mode";
-import { DEFAULT_CUSTOM_IMAGE_PROMPT, IMAGE_PROMPT_STYLES, IMAGE_PROMPT_VARIABLES, MAX_CUSTOM_IMAGE_PROMPT_CHARS, renderImagePrompt, type ImagePromptStyle } from "@/lib/image-prompts";
+import { IMAGE_PROMPT_PRESETS, resolveImagePromptProfiles, type ImagePromptStyle, type ImagePromptProfiles } from "@/lib/image-prompts";
+import { ImagePromptEditor } from "@/components/image-prompt-editor";
 import { PROVIDER_PRESETS, PROVIDER_PROTOCOLS, applyProviderPreset, detectProviderPreset, isLocalProviderAddress, providerOrigin, type ProviderProtocol } from "@/lib/provider-presets";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,16 +21,17 @@ type Provider = {
   referenceModel?: string;
   promptStyle?: ImagePromptStyle;
   customPrompt?: string;
+  promptProfiles?: ImagePromptProfiles;
 };
 type Providers = Record<ProviderKind, Provider>;
-type Draft = { baseUrl: string; model: string; apiKey: string; referenceModel: string; promptStyle: ImagePromptStyle; customPrompt: string; protocol: ProviderProtocol; local: boolean; visionEnabled: boolean };
+type Draft = { baseUrl: string; model: string; apiKey: string; referenceModel: string; promptStyle: ImagePromptStyle; customPrompt: string; promptProfiles: ImagePromptProfiles; protocol: ProviderProtocol; local: boolean; visionEnabled: boolean };
 type Notice = { text: string; error?: boolean };
 type ProviderResult = { settings?: Providers; message?: string; error?: string; code?: string };
 
-const EMPTY: Draft = { baseUrl: "", model: "", apiKey: "", referenceModel: "nai-diffusion-4-5-full", promptStyle: "default", customPrompt: "", protocol: "openai-chat", local: false, visionEnabled: false };
+const EMPTY: Draft = { baseUrl: "", model: "", apiKey: "", referenceModel: "nai-diffusion-4-5-full", promptStyle: "default", customPrompt: "", promptProfiles: resolveImagePromptProfiles("nai-diffusion-5-full", "nai-diffusion-4-5-full"), protocol: "openai-chat", local: false, visionEnabled: false };
 const KINDS: ProviderKind[] = ["text", "image"];
 const LABELS = { text: "文本模型", image: "生图模型" };
-const toDraft = (provider: Provider): Draft => ({ baseUrl: provider.baseUrl, model: provider.model, apiKey: "", referenceModel: provider.referenceModel || "nai-diffusion-4-5-full", promptStyle: provider.promptStyle || "default", customPrompt: provider.customPrompt || "", protocol: provider.protocol || "openai-chat", local: !!provider.local, visionEnabled: !!provider.visionEnabled });
+const toDraft = (provider: Provider): Draft => ({ baseUrl: provider.baseUrl, model: provider.model, apiKey: "", referenceModel: provider.referenceModel || "nai-diffusion-4-5-full", promptStyle: provider.promptStyle || "default", customPrompt: provider.customPrompt || "", promptProfiles: resolveImagePromptProfiles(provider.model, provider.referenceModel || "nai-diffusion-4-5-full", provider), protocol: provider.protocol || "openai-chat", local: !!provider.local, visionEnabled: !!provider.visionEnabled });
 function redact(message: string, secret = "") {
   const clean = secret ? message.split(secret).join("[已隐藏 Key]") : message;
   return clean.replace(/sk-[A-Za-z0-9_-]{8,}/g, "[已隐藏 Key]");
@@ -50,6 +52,7 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
   const [saving, setSaving] = useState<{ kind: ProviderKind; action: "save" | "reset" } | null>(null);
   const [notices, setNotices] = useState<Partial<Record<ProviderKind, Notice>>>({});
   const savingRef = useRef(false);
+  const [promptEditorOpen, setPromptEditorOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError(""); setAuthRequired(false);
@@ -84,7 +87,7 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
     setPresets(current => ({ ...current, [kind]: presetId }));
     setNotices(current => ({ ...current, [kind]: undefined }));
   };
-  const mutate = async (kind: ProviderKind, action: "save" | "reset") => {
+  const mutate = async (kind: ProviderKind, action: "save" | "reset", promptProfiles?: ImagePromptProfiles) => {
     if (busy || savingRef.current || !settings) return;
     const draft = drafts[kind];
     if (action === "save") {
@@ -111,7 +114,7 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
           action, kind, baseUrl: draft.baseUrl.trim(), model: draft.model.trim(), apiKey: draft.apiKey.trim(),
           protocol: draft.protocol, local: draft.local,
           ...(kind === "text" ? { visionEnabled: draft.visionEnabled } : {}),
-          ...(kind === "image" ? { referenceModel: draft.referenceModel.trim(), promptStyle: draft.promptStyle, customPrompt: draft.customPrompt } : {}),
+          ...(kind === "image" ? { referenceModel: draft.referenceModel.trim(), promptStyle: draft.promptStyle, customPrompt: draft.customPrompt, promptProfiles: promptProfiles ?? draft.promptProfiles } : {}),
         }),
       });
       if (response.status === 401) { setAuthRequired(true); throw new Error(AUTH_ERROR); }
@@ -124,6 +127,7 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
       setPresets(current => ({ ...current, [kind]: detectProviderPreset(kind, result.settings![kind]) }));
       setNotices(current => ({ ...current, [kind]: { text: action === "reset" ? `${LABELS[kind]}已恢复原始默认配置。` : `${LABELS[kind]}配置已保存并生效。` } }));
       await onSaved();
+      return true;
     } catch (error) {
       setNotices(current => ({ ...current, [kind]: { error: true, text: redact(error instanceof Error ? error.message : "保存失败，请重试。", draft.apiKey.trim()) } }));
     } finally {
@@ -154,11 +158,7 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
           {kind === "text" && <label className={`provider-option provider-vision ${draft.visionEnabled ? "active" : ""}`} htmlFor="text-vision-enabled"><input id="text-vision-enabled" name="text-vision-enabled" type="checkbox" checked={draft.visionEnabled} disabled={locked} onChange={event => edit(kind, "visionEnabled", event.target.checked)}/><span><strong>启用图片识别（需模型支持）</strong><small>允许文本模型读取你发送的图片及你的头像。请确认当前模型支持视觉输入；不支持时关闭。</small></span></label>}
           {kind === "image" && <div className="provider-field"><label htmlFor="image-reference-model">参考图模型</label><input id="image-reference-model" name="image-reference-model" value={draft.referenceModel} spellCheck={false} onChange={event => edit(kind, "referenceModel", event.target.value)} placeholder="例如 nai-diffusion-4-5-full 或 gpt-image-1" maxLength={200} required disabled={locked}/><p>聊天发图与引用角色的群聊图片会上传头像参考，共用上方 API 地址及下方 Key。NovelAI 使用角色参考接口，GPT-image 等兼容模型使用 images/edits；接口不支持时会提示错误，保留重试机会。</p></div>}
           <div className="provider-field"><label htmlFor={`${kind}-api-key`}><KeyRound size={12}/>API Key{draft.local && <span>（可选）</span>}{storedForDraft && <span className="provider-key-hint">已保存 {provider.keyHint || "••••••••"}</span>}</label><input id={`${kind}-api-key`} name={`${kind}-api-key`} type="password" autoComplete="new-password" spellCheck={false} value={draft.apiKey} onChange={event => edit(kind, "apiKey", event.target.value)} placeholder={storedForDraft ? `已配置 ${provider.keyHint || "••••••••"} · 留空保留` : draft.local ? "本机服务未启用鉴权时可留空" : "输入此服务的 API Key"} maxLength={2048} disabled={locked}/><p>{draft.local ? storedForDraft ? "留空保留本机服务已保存的 Key；输入新 Key 替换。" : "本机可不填 Key。切换到本机时不会沿用原云服务的密钥。" : changingOrigin || provider.local ? "API 来源已更换，必须输入新地址对应的 Key。" : "留空保留已保存 Key；输入新 Key 替换。"}</p></div>
-          {kind === "image" && <div className="provider-prompt-settings">
-            <div className="provider-field"><label htmlFor="image-prompt-style">图片初始提示词模板</label><select id="image-prompt-style" name="image-prompt-style" value={draft.promptStyle} onChange={event => edit(kind, "promptStyle", event.target.value as ImagePromptStyle)} disabled={locked}>{IMAGE_PROMPT_STYLES.map(style => <option value={style.value} key={style.value}>{style.label}</option>)}</select><p>{IMAGE_PROMPT_STYLES.find(style => style.value === draft.promptStyle)?.description}</p><p>保存后用于肖像、私聊发图和群聊生图。模板选择不会更改模型名称。</p></div>
-            {draft.promptStyle === "custom" && <div className="provider-field provider-template-field"><label htmlFor="image-custom-prompt">自定义模板<span>{draft.customPrompt.length} / {MAX_CUSTOM_IMAGE_PROMPT_CHARS}</span></label><textarea id="image-custom-prompt" name="image-custom-prompt" value={draft.customPrompt} onChange={event => edit(kind, "customPrompt", event.target.value)} placeholder={DEFAULT_CUSTOM_IMAGE_PROMPT} maxLength={MAX_CUSTOM_IMAGE_PROMPT_CHARS} rows={7} spellCheck={false} disabled={locked}/><div className="provider-template-variables" aria-label="可用模板变量">{IMAGE_PROMPT_VARIABLES.map(variable => <code key={variable}>{`{{${variable}}}`}</code>)}</div><p>prompt 是当前完整基础提示；name 为角色名，age 为年龄或制造日期，species / form 为种族与构型，appearance / traits 为外观与性格，request / userMessage 为当前画面与用户要求。通用配图没有人物时，人物变量留空。自定义模板可自由组织这些内容，建议保留 {"{{prompt}}"} 以带入完整上下文。</p>{!draft.customPrompt.trim() && <button type="button" className="button ghost" disabled={locked} onClick={() => edit(kind, "customPrompt", DEFAULT_CUSTOM_IMAGE_PROMPT)}>填入示例模板</button>}</div>}
-            <details className="provider-template-preview"><summary>查看待保存的模板结构</summary><p>仅预览模板结构，不调用模型。实际生成时会填入当前人物与画面上下文。</p><pre>{renderImagePrompt("{{prompt}}", draft.promptStyle, draft.customPrompt, Object.fromEntries(IMAGE_PROMPT_VARIABLES.map(name => [name, `{{${name}}}`])))}</pre></details>
-          </div>}
+          {kind === "image" && <div className="provider-prompt-settings"><div className="provider-prompt-summary">{(["generation", "reference"] as const).map(slot => <div key={slot}><strong>{slot === "generation" ? "文生图" : "参考图"} · {IMAGE_PROMPT_PRESETS.find(item => item.value === draft.promptProfiles[slot].preset)?.label}</strong><span>{draft.promptProfiles[slot].llmEnabled ? "文本模型编写最终正向与负面提示词" : "直接使用正向模板与负面词"}</span></div>)}</div><button type="button" className="button secondary" disabled={locked} onClick={() => setPromptEditorOpen(true)}>编辑图片提示词</button></div>}
           {notice && <div className={`provider-notice ${notice.error ? "error" : "success"}`} role={notice.error ? "alert" : "status"}>{notice.error ? <CircleHelp size={14}/> : <Check size={14}/>}<span>{notice.text}</span></div>}
           <div className="provider-actions"><button type="button" className="button secondary" aria-label={kind === "text" ? "恢复文本默认" : "恢复生图默认"} disabled={locked} onClick={() => void mutate(kind, "reset")}>{saving?.kind === kind && saving.action === "reset" ? <LoaderCircle size={13} className="spin"/> : <RotateCcw size={13}/>}恢复默认</button><button type="submit" className="button primary" aria-label={kind === "text" ? "保存文本配置" : "保存生图配置"} disabled={locked}>{saving?.kind === kind && saving.action === "save" ? <LoaderCircle size={13} className="spin"/> : <Check size={13}/>}保存{kind === "text" ? "文本" : "生图"}配置</button></div>
         </form>;
@@ -166,5 +166,6 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
     </div>}
     <p className="provider-footnote"><LockKeyhole size={12}/><span>Key 只提交并保存在服务端，不回显原文、不写入浏览器存储。保存配置不会调用模型；恢复默认会还原该卡片的原始服务端配置。</span></p>
     {busy && !saving && <p className="provider-busy"><LoaderCircle size={12} className="spin"/>当前操作完成后，即可修改模型连接。</p>}
+    {promptEditorOpen && <ImagePromptEditor value={drafts.image.promptProfiles} model={drafts.image.model} referenceModel={drafts.image.referenceModel} busy={locked} onClose={() => setPromptEditorOpen(false)} onSave={async profiles => Boolean(await mutate("image", "save", profiles))}/>}
   </section>;
 }

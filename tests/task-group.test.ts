@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialState } from '../lib/seeds.ts';
-import { appendGroupUserMessage, runGroupTurn, taskGroupContext, GROUP_TOOL_LIMIT, type GroupDependencies } from '../lib/server/task-group.ts';
+import { appendGroupUserMessage, runGroupTurn, taskGroupContext, GROUP_REQUEST_TOOL_LIMIT, type GroupDependencies } from '../lib/server/task-group.ts';
 import { runCode } from '../lib/server/code-interpreter.ts';
 import type { SocialEvent, Task, TaskArtifact } from '../lib/types.ts';
 
@@ -63,6 +63,7 @@ test('user group messages enter participant memories immediately without model c
 
 test('each task has one updating reserved memory even when ordinary memory capacity is full', () => {
   const { state, task, author } = fixture();
+  state.settings.memoryLimit = 100;
   author.memories = Array.from({ length: 100 }, (_, index) => ({ id: `memory-${index}`, kind: 'experience', source: `source-${index}`, content: `已有记忆${index}`, createdAt: NOW }));
   appendGroupUserMessage(state, task, '第一条群消息');
   assert.equal(author.memories.length, 101); const groupMemory = author.memories.at(-1)!;
@@ -116,13 +117,14 @@ test('a refusal resolves an explicit request without inventing a cooperation rel
   assert.equal(state.relationships.length, 0); assert.equal(taskGroupContext(state, task, b, 'next').pendingRequests.length, 0);
 });
 
-test('image generation is independently reviewed, stored as a real attachment, and limited to one attempt per turn', async () => {
+test('image generation is independently reviewed and obeys the configured attempt limit', async () => {
   const { state, task, author } = fixture(); let imageCalls = 0;
+  state.settings.groupImageLimit = 1;
   const image = { type: 'tool', tool: 'image.generate', input: { prompt: '旅行计划插图', referenceAgentId: author.id } };
   const run = script([image, approved, image, finish('已附上配图。', { kind: 'submit' }), approved], { image: async (_prompt, reference) => { imageCalls++; assert.equal(reference, author.id); return { bytes: new Uint8Array([1, 2, 3]), contentType: 'image/png' }; } });
   await runGroupTurn(state, task, author, run.deps);
   assert.equal(imageCalls, 1); assert.equal(task.artifacts!.length, 1); assert.equal(task.artifacts![0].kind, 'image'); assert.equal(run.images.size, 1);
-  assert.equal(task.toolRuns![1].status, 'error'); assert.match(task.toolRuns![1].error!, /最多尝试生成一张/);
+  assert.equal(task.toolRuns![1].status, 'error'); assert.match(task.toolRuns![1].error!, /图片尝试次数上限/);
   assert.equal(run.calls[1].system, 'task.group.review'); assert.equal(run.calls[1].input.candidate.tool, 'image.generate');
   assert.equal(run.calls[2].input.artifacts[0].visuallyObserved, false); assert.equal(run.calls[2].input.fileContents.length, 0);
   assert.deepEqual(state.events[0].artifactIds, [task.artifacts![0].id]); assert.equal(JSON.stringify(run.calls).includes('bytes'), false);
@@ -178,11 +180,13 @@ test('rejected actions do not change strategy or create unreviewed learned memor
   assert.equal(author.memories[0].source, `task-group:${task.id}`); assert.equal(author.memories[0].content.includes('恶意新策略'), false);
 });
 
-test('tool and correction budgets prevent unlimited model or paid tool loops', async () => {
+test('configured tool and correction budgets prevent extra calls after a finite limit', async () => {
   const { state, task, author } = fixture(); let searches = 0;
+  state.settings.groupToolLimit = 4;
   const run = script(Array.from({ length: 9 }, () => ({ type: 'tool', tool: 'web.search', input: { query: '攻略' } })), { search: async () => { searches++; return []; } });
   await runGroupTurn(state, task, author, run.deps);
-  assert.equal(searches, GROUP_TOOL_LIMIT); assert.equal(task.toolRuns!.length, GROUP_TOOL_LIMIT); assert.equal(run.calls.length, GROUP_TOOL_LIMIT + 1); assert.equal(run.calls.at(-1)!.input.mustFinish, true);
+  assert.equal(searches, 4); assert.equal(task.toolRuns!.length, 4); assert.equal(run.calls.length, 5); assert.equal(run.calls.at(-1)!.input.mustFinish, true);
+  assert.equal(task.groupTurn, undefined);
   assert.ok(run.calls.every(call => call.timeout > 0 && call.timeout <= 42_000));
   const broken = fixture(); const malformed = script([{ impossible: true }, { impossible: true }, finish(), approved]);
   await runGroupTurn(broken.state, broken.task, broken.author, malformed.deps); assert.equal(malformed.calls.length, 2);
@@ -213,4 +217,84 @@ test('archived and nonparticipating members cannot execute group turns', async (
   const { state, task, author } = fixture(); author.archivedAt = NOW;
   await assert.rejects(runGroupTurn(state, task, author, script([]).deps), /本群当前在庭成员/);
   await assert.rejects(runGroupTurn(state, task, state.agents[3], script([]).deps), /本群当前在庭成员/);
+});
+
+test('unlimited tools yield durable chunks and resume the same turn without duplicate artifacts', async () => {
+  const { state, task, author } = fixture();
+  const run = script([...Array.from({ length: 9 }, (_, index) => write(`part-${index}.md`, `第${index}份`)), finish('九份资料已经保存。'), approved]);
+  await runGroupTurn(state, task, author, run.deps);
+  assert.equal(run.calls.length, GROUP_REQUEST_TOOL_LIMIT);
+  assert.equal(task.groupTurn?.toolCalls, 4); assert.equal(task.artifacts!.length, 4);
+  assert.equal(state.events.length, 0); assert.equal(task.cursor, 0);
+  assert.equal(run.calls[0].input.maxToolCalls, 0); assert.equal(run.calls[0].input.remainingToolCalls, null);
+  assert.equal(run.calls[0].input.mustFinish, false);
+  const eventId = task.groupTurn!.eventId;
+  assert.ok(author.memories.some(memory => memory.source === `task-group:${task.id}` && memory.content.includes('part-3.md')));
+  const restored = structuredClone(state), restoredTask = restored.tasks[0], restoredAuthor = restored.agents[0];
+  await runGroupTurn(restored, restoredTask, restoredAuthor, run.deps);
+  assert.equal(restoredTask.groupTurn?.toolCalls, 8); assert.equal(restoredTask.groupTurn?.eventId, eventId);
+  await runGroupTurn(restored, restoredTask, restoredAuthor, run.deps);
+  assert.equal(restoredTask.groupTurn, undefined); assert.equal(restoredTask.artifacts!.length, 9);
+  assert.equal(restored.events.length, 1); assert.equal(restored.events[0].id, eventId);
+  assert.deepEqual(restored.events[0].artifactIds, restoredTask.artifacts!.map(item => item.id));
+  assert.ok(restoredTask.artifacts!.every(item => item.eventId === eventId));
+});
+
+test('finite tool and image budgets survive a persisted continuation and cannot be reset by a new request', async () => {
+  const { state, task, author } = fixture();
+  state.settings.groupToolLimit = 6; state.settings.groupImageLimit = 1;
+  const image = { type: 'tool', tool: 'image.generate', input: { prompt: '插图' } };
+  let images = 0;
+  const run = script([image, approved, write(), write(), write(), image, write(), finish(), approved], { image: async () => { images++; return { bytes: new Uint8Array([1]), contentType: 'image/png' }; } });
+  await runGroupTurn(state, task, author, run.deps);
+  assert.equal(task.groupTurn?.toolCalls, 4); assert.equal(task.groupTurn?.imageCalls, 1);
+  const restored = structuredClone(state);
+  await runGroupTurn(restored, restored.tasks[0], restored.agents[0], run.deps);
+  assert.equal(images, 1); assert.equal(restored.tasks[0].toolRuns!.length, 6);
+  assert.equal(restored.tasks[0].toolRuns![4].status, 'error');
+  assert.equal(run.calls.at(-2)!.input.mustFinish, true);
+  assert.equal(run.calls.at(-2)!.input.remainingToolCalls, 0);
+  assert.equal(restored.tasks[0].groupTurn, undefined);
+});
+
+test('image and artifact counts are unlimited by default while configurable artifact limits apply before paid calls', async () => {
+  const { state, task, author } = fixture();
+  const image = { type: 'tool', tool: 'image.generate', input: { prompt: '插图' } };
+  const run = script([image, approved, image, approved, finish(), approved]);
+  await runGroupTurn(state, task, author, run.deps);
+  assert.equal(run.images.size, 2);
+  const original: TaskArtifact = task.artifacts![0];
+  task.artifacts = Array.from({ length: 31 }, (_, index) => ({ ...original, id: `old-${index}` }));
+  await runGroupTurn(state, task, author, script([write(), finish(), approved]).deps);
+  assert.equal(task.artifacts.length, 32);
+  state.settings.groupArtifactLimit = 32;
+  let paidCalls = 0;
+  await runGroupTurn(state, task, author, script([image, finish(), approved], { image: async () => { paidCalls++; throw new Error('must not run'); } }).deps);
+  assert.equal(paidCalls, 0); assert.equal(task.artifacts.length, 32);
+  assert.match(task.toolRuns!.at(-1)!.error!, /成果版本上限/);
+  assert.equal(taskGroupContext(state, task, author, 'next').artifacts.length, 30);
+});
+
+test('historical tool records persist beyond sixty entries and learned memories obey an optional limit', async () => {
+  const { state, task, author } = fixture();
+  task.toolRuns = Array.from({ length: 60 }, (_, index) => ({ id: `old-tool-${index}`, agentId: author.id, tool: 'web.search', inputSummary: '旧检索', status: 'ok', createdAt: NOW }));
+  state.settings.memoryLimit = 1;
+  author.memories.push({ id: 'kept', kind: 'experience', content: '保留的个人记忆', source: 'kept-source', createdAt: NOW });
+  state.events.push(message(task, 'user-source', 'user', { actorType: 'user' }));
+  const action = finish('已核对', { memories: [{ kind: 'experience', content: '新学习', source: 'user-source' }] });
+  await runGroupTurn(state, task, author, script([write(), action, approved]).deps);
+  assert.equal(task.toolRuns.length, 61); assert.equal(task.toolRuns[0].id, 'old-tool-0');
+  assert.equal(author.memories.some(memory => memory.content === '新学习'), false);
+  state.settings.memoryLimit = 0;
+  await runGroupTurn(state, task, author, script([action, approved]).deps);
+  assert.equal(author.memories.some(memory => memory.content === '新学习'), true);
+});
+
+test('an unlimited tool turn reports failure when a whole chunk fails instead of endlessly scheduling more paid requests', async () => {
+  const { state, task, author } = fixture();
+  const run = script(Array.from({ length: 9 }, () => ({ type: 'tool', tool: 'web.search', input: { query: '重试检索' } })), { search: async () => { throw new Error('unavailable'); } });
+  const failure = await runGroupTurn(state, task, author, run.deps);
+  assert.match(failure!, /工具均未成功/); assert.equal(run.calls.length, 4);
+  assert.equal(task.groupTurn, undefined); assert.equal(task.toolRuns!.length, 4);
+  assert.equal(state.events.length, 1); assert.equal(state.events[0].actorType, 'system');
 });

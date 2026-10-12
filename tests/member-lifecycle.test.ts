@@ -39,26 +39,31 @@ test('leaving and restoring preserve identity, memory, affection and original me
   assert.equal(state.tasks[0].participants.includes(first.id), false, 'return does not silently reinsert a member into an ongoing task');
 });
 
-test('removing next speaker preserves remaining turn order and pauses insufficient groups', () => {
+test('removing next speaker preserves remaining order, permits solo work and pauses empty groups', () => {
   const state = fixture();
   archiveMember(state, state.agents[1].id, now);
   assert.equal(state.tasks[0].cursor, 1);
   assert.equal(state.tasks[0].order[1], state.agents[2].id);
   archiveMember(state, state.agents[2].id, now);
+  assert.equal(state.tasks[0].status, 'running');
+  assert.deepEqual(state.tasks[0].participants, [state.agents[0].id]);
+  archiveMember(state, state.agents[0].id, now);
   assert.equal(state.tasks[0].status, 'paused');
-  assert.match(state.tasks[0].lastError || '', /不足两位/);
+  assert.match(state.tasks[0].lastError || '', /没有在庭参与成员/);
   assert.equal(state.agents[0].weight, 8);
 });
 
-test('restore respects courtyard capacity without changing the archived profile or membership events', () => {
+test('restoring a member permits more than eight members without changing her profile', () => {
   const state = createInitialState();
   state.agents.forEach(agent => { agent.hired = true; });
   const archived = structuredClone(state.agents[0]);
   archived.id = 'archived-extra'; archived.archivedAt = now;
   state.agents.push(archived);
-  const before = structuredClone(state);
-  assert.throws(() => restoreMember(state, archived.id, now), { code: 'MEMBER_CAPACITY' });
-  assert.deepEqual(state, before);
+  const before = structuredClone(archived); delete before.archivedAt;
+  restoreMember(state, archived.id, now);
+  assert.deepEqual(archived, before);
+  assert.equal(activeMembers(state).length, 9);
+  assert.equal(state.membershipEvents?.at(-1)?.kind, 'returned');
 });
 
 test('removing the final unplayed speaker advances a complete round without duplicate turns', () => {
@@ -68,6 +73,26 @@ test('removing the final unplayed speaker advances a complete round without dupl
   assert.equal(state.tasks[0].round, 2);
   assert.equal(state.tasks[0].cursor, 0);
   assert.deepEqual(state.tasks[0].order, state.agents.slice(0, 2).map(agent => agent.id));
+});
+
+test('unlimited-round tasks continue after membership changes and removed speakers release pending turns', () => {
+  const state = fixture(), task = state.tasks[0];
+  task.rounds = 0; task.round = 9; task.cursor = 2;
+  task.groupTurn = { agentId: state.agents[2].id, eventId: 'unfinished', toolCalls: 4, imageCalls: 0, corrected: false, correction: '', startedAt: now };
+  archiveMember(state, state.agents[2].id, now);
+  assert.equal(task.status, 'running'); assert.equal(task.round, 10); assert.equal(task.cursor, 0);
+  assert.equal(task.groupTurn, undefined);
+});
+
+test('completed tasks also release legacy pending delivery when its member leaves or is deleted', () => {
+  const state = fixture(), task = state.tasks[0], agent = state.agents[0];
+  task.status = 'completed';
+  task.deliveryProgress = { agentId: agent.id, eventId: 'unfinished-delivery', toolCalls: 4, correction: '', startedAt: now };
+  task.artifacts = [{ id: 'saved-file', agentId: agent.id, eventId: 'unfinished-delivery', name: 'saved.txt', mimeType: 'text/plain', size: 1, createdAt: now, url: '/api/artifacts/saved-file' }];
+  archiveMember(state, agent.id, now);
+  assert.equal(task.deliveryProgress, undefined); assert.equal(task.status, 'completed');
+  permanentlyDeleteMember(state, agent.id, '永久删除', now);
+  assert.equal(task.artifacts.length, 1); assert.equal(task.artifacts[0].agentId, DELETED_MEMBER_ID);
 });
 
 test('an archived sender request remains history but cannot receive a new delegation acceptance', () => {

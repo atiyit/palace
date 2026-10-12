@@ -139,3 +139,11 @@ test('settings preserve valid values and reject non-finite input', () => {
   assert.deepEqual(validateSettings({ exploration: 0, drama: 2 }, current), { exploration: .05, drama: 1 });
   assert.deepEqual(validateSettings({ exploration: .9, drama: -1 }, current), { exploration: .5, drama: 0 });
 });
+
+test('runtime limits accept unlimited zero and arbitrary safe counts while rejecting invalid values', () => {
+  const current = { exploration: .2, drama: .6, memoryLimit: 100, groupToolLimit: 4, groupImageLimit: 1, groupArtifactLimit: 30 };
+  assert.deepEqual(validateSettings({ memoryLimit: 0, groupToolLimit: 600, groupImageLimit: 12, groupArtifactLimit: 2000 }, current), { ...current, memoryLimit: 0, groupToolLimit: 600, groupImageLimit: 12, groupArtifactLimit: 2000 });
+  for (const invalid of [-1, 1.5, Number.NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.deepEqual(validateSettings({ memoryLimit: invalid, groupToolLimit: invalid, groupImageLimit: invalid, groupArtifactLimit: invalid }, current), current);
+  }
+});

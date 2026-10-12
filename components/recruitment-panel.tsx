@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleHelp, FileText, LoaderCircle, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Check, CircleHelp, Dice5, FileText, LoaderCircle, RefreshCw, Shuffle, Sparkles, Trash2 } from "lucide-react";
 import type { RecruitmentBatch } from "@/lib/types";
 
 const EXAMPLES = [
@@ -11,7 +11,7 @@ const EXAMPLES = [
   "原创种族：自由描述形态、世界观与相处方式",
 ];
 
-export function RecruitmentPanel({ brief, count, batch, busy, textReady, activeSlots, onBriefChange, onCountChange, onRecruit, onRetry, onSkip }: {
+export function RecruitmentPanel({ brief, count, batch, busy, textReady, activeSlots, onBriefChange, onCountChange, onRecruit, onRandomBrief, onRandomRecruit, onRetry, onSkip }: {
   brief: string;
   count: number;
   batch?: RecruitmentBatch;
@@ -21,11 +21,15 @@ export function RecruitmentPanel({ brief, count, batch, busy, textReady, activeS
   onBriefChange: (value: string) => void;
   onCountChange: (value: number) => void;
   onRecruit: () => Promise<void>;
+  onRandomBrief: () => Promise<void>;
+  onRandomRecruit: () => Promise<void>;
   onRetry: (slot?: number) => Promise<void>;
   onSkip: (slot: number) => Promise<void>;
 }) {
   const starting = busy === "recruit";
   const retrying = busy === "recruit.retry";
+  const imagining = busy === "recruit.idea";
+  const randomRecruiting = busy === "recruit.random";
   const succeeded = batch?.slots.filter(slot => slot.status === "succeeded").length || 0;
   const outstanding = batch?.slots.filter(slot => slot.status === 'pending' || slot.status === 'failed') || [];
   const skipped = batch?.slots.filter(slot => slot.status === 'skipped').length || 0;
@@ -37,8 +41,10 @@ export function RecruitmentPanel({ brief, count, batch, busy, textReady, activeS
       <label className="field-label" htmlFor="recruit-brief">你期待怎样的人物？</label>
       <textarea id="recruit-brief" value={brief} disabled={!!busy} onChange={event => onBriefChange(event.target.value)} maxLength={1800} placeholder="例如：一位有硅胶皮肤、自然头发和拟人表情的仿生机器人，外观近似人类，记录制造日期。也可以是外露机械结构的机器人、精灵或原创种族。希望她有具体身世、内心矛盾、自己的相处方式与明显短板。"/>
       <div className="quick-prompts">{EXAMPLES.map(text => <button type="button" key={text} disabled={!!busy} onClick={() => onBriefChange(text)}>{text}</button>)}</div>
+      <div className="recruit-random-tools"><button type="button" className="button secondary small" disabled={locked} onClick={() => void onRandomBrief()}>{imagining ? <LoaderCircle size={14} className="spin"/> : <Dice5 size={14}/>} {imagining ? "正在构思人物设定…" : "随机人物设定"}</button><span className="form-hint">参考当前方向生成可编辑设定；留空即可自由创作。</span></div>
       <div className="recruit-options"><div className="recruit-count-field"><label htmlFor="recruit-count">这次寻访几位？</label><select id="recruit-count" value={count} disabled={!!busy} onChange={event => onCountChange(Number(event.target.value))}>{Array.from({ length: 10 }, (_, index) => index + 1).map(number => <option key={number} value={number}>{number} 份简历</option>)}</select></div><p>按你选择的数量生成详细人物档案，每份独立检查，并参照已有角色区分经历、性格、外貌细节与相处方式。失败项可以单独重试或移除。</p></div>
-      <div className="form-footer"><span className="form-hint">本次 {count} 份 · 16 维能力 · 种族与形态不限<br/>生成与重试均调用文本 API，按实际请求计费。</span><button type="submit" className="button primary" disabled={locked || !brief.trim()}>{starting ? <LoaderCircle size={14} className="spin"/> : <Sparkles size={14}/>} {starting ? `正在生成 ${activeSlots.length} 份…` : `开始${batch ? "新" : ""}寻访 · ${count} 份`}</button></div>
+      <div className="form-footer"><span className="form-hint">本次 {count} 份 · 16 维能力 · 种族与形态不限<br/>随机设定调用一次文本 API；随机招募还会生成档案，按实际请求计费。</span><div className="recruit-start-actions"><button type="button" className="button secondary" disabled={locked} onClick={() => void onRandomRecruit()}>{randomRecruiting ? <LoaderCircle size={14} className="spin"/> : <Shuffle size={14}/>} {randomRecruiting ? "正在构思招募方向…" : `随机招募 · ${count} 份`}</button><button type="submit" className="button primary" disabled={locked || !brief.trim()}>{starting ? <LoaderCircle size={14} className="spin"/> : <Sparkles size={14}/>} {starting ? `正在生成 ${activeSlots.length} 份…` : `开始${batch ? "新" : ""}寻访 · ${count} 份`}</button></div></div>
+      {(imagining || randomRecruiting) && <p className="recruit-connection-note" role="status"><LoaderCircle size={13} className="spin"/>{imagining ? "正在结合当前方向和已有公开角色，创作一份可编辑的需求。" : "正在创作随机需求，完成后会按当前数量开始寻访。"}</p>}
       {!textReady && <p className="recruit-connection-note"><CircleHelp size={13}/>请先在庭院设置连接文本模型，再开始寻访或重试。</p>}
       {batch && !batch.applied && <p className="recruit-new-note">下方批次还有未完成项。可以重新生成，或移除失败项后把成功档案放进候选池。开始新寻访会替换本批次记录。</p>}
     </form>

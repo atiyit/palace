@@ -5,14 +5,20 @@ import { readPublicProviderSettings, resetProviderSettings, saveProviderSettings
 import { mutateState } from '@/lib/server/store';
 import { createInitialState } from '@/lib/seeds';
 import type { AppState } from '@/lib/types';
+import { MAX_IMAGE_PROMPT_INSTRUCTIONS_CHARS, MAX_IMAGE_POSITIVE_PROMPT_CHARS, MAX_IMAGE_NEGATIVE_PROMPT_CHARS } from '@/lib/image-prompts';
 
 export const dynamic = "force-dynamic";
 const responseHeaders = { "Cache-Control": "private, no-store, max-age=0", "Vary": "Cookie", "X-Content-Type-Options": "nosniff" };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: responseHeaders });
+const promptProfileSchema = z.object({
+  preset: z.enum(['nai5', 'nai45', 'gpt-image', 'nano-banana', 'custom']), llmEnabled: z.boolean(),
+  instructions: z.string().max(MAX_IMAGE_PROMPT_INSTRUCTIONS_CHARS), positivePrompt: z.string().max(MAX_IMAGE_POSITIVE_PROMPT_CHARS), negativePrompt: z.string().max(MAX_IMAGE_NEGATIVE_PROMPT_CHARS),
+}).strict();
 const payloadSchema = z.object({
   action: z.enum(["save", "reset"]), kind: z.enum(["text", "image"]),
   baseUrl: z.string().max(2048).optional(), model: z.string().max(200).optional(), apiKey: z.string().max(2048).optional(),
   referenceModel: z.string().max(200).optional(), promptStyle: z.enum(['default', 'novelai', 'gpt-image', 'custom']).optional(), customPrompt: z.string().max(6000).optional(),
+  promptProfiles: z.object({ generation: promptProfileSchema, reference: promptProfileSchema }).strict().optional(),
   protocol: z.enum(['openai-chat', 'openai-responses', 'anthropic', 'ollama']).optional(), local: z.boolean().optional(), visionEnabled: z.boolean().optional(),
 }).strict();
 
@@ -35,9 +41,9 @@ export async function POST(request: Request) {
     if (!origin || origin !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") throw new PalaceError("请求来源不匹配，请在应用页面内操作。", 403, "ORIGIN_MISMATCH");
     if (!request.headers.get("content-type")?.toLowerCase().includes("application/json")) throw new PalaceError("请求需要JSON格式。", 415);
     const declaredLength = Number(request.headers.get("content-length") || "0");
-    if (declaredLength > 32768) throw new PalaceError("配置请求不能超过32KB。", 413);
+    if (declaredLength > 262144) throw new PalaceError("配置请求不能超过256KB。", 413);
     const body = await request.text();
-    if (new TextEncoder().encode(body).length > 32768) throw new PalaceError("配置请求不能超过32KB。", 413);
+    if (new TextEncoder().encode(body).length > 262144) throw new PalaceError("配置请求不能超过256KB。", 413);
     let raw: unknown;
     try { raw = JSON.parse(body); } catch { throw new PalaceError("请求JSON格式无效。"); }
     const parsed = payloadSchema.safeParse(raw);

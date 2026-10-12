@@ -217,6 +217,19 @@ test('image provider failures remain errors in the standalone stage and cannot c
   assert.deepEqual(state, before);
 });
 
+test('user portrait debug passes the same identity aliases and raw prompt used by negative templates', async () => {
+  const state = createInitialState();
+  const { dependencies } = fixture();
+  dependencies.generatePortrait = async (prompt, reference, variables) => {
+    assert.equal(reference, undefined); assert.equal(variables?.name, '阿遥');
+    assert.equal(variables?.appearance, 'short black hair'); assert.equal(variables?.userMessage, 'round glasses');
+    assert.equal(variables?.prompt, prompt);
+    return { bytes, contentType: 'image/png' };
+  };
+  const result = await runDebugCore(state, { stage: 'user-portrait', input: { name: '阿遥', description: 'short black hair', request: 'round glasses' } }, 'run', 'fixture-user', dependencies);
+  assert.equal(result.status, 'ok');
+});
+
 test('chat-image template is independently editable and faithfully interpolates temporary composition instructions', () => {
   const definition = listPrompts().find(item => item.id === 'chat.image.template')!;
   assert.deepEqual(definition.variables, ['age', 'species', 'form', 'appearance', 'traits', 'request', 'userMessage']);

@@ -10,6 +10,8 @@ import type { PortraitReference } from "./portrait-reference";
 import { generateReferenceImage } from "./novelai-image-provider";
 import { generateCompatibleReferenceImage, isGptImageModel } from './compatible-image-provider';
 import { buildTextRequest, extractTextResult, readTextResponse, type TextImageInput } from './text-provider-adapter';
+import { getImagePromptProfile, renderImagePromptTemplate } from '../image-prompts';
+import { compileImagePrompt, withImageConstraints } from './image-prompt-compiler';
 
 export const DEFAULT_MODEL = DEFAULT_TEXT_MODEL;
 export const modelName = () => getEffectiveProvider("text").model;
@@ -83,21 +85,29 @@ export async function completeJson(system: string, input: unknown, maxTokens = 1
   } finally { clearTimeout(timer); updateProviderTrace(trace, { elapsedMs: Date.now() - started }); }
 }
 
-export async function generatePortrait(prompt: string, reference?: PortraitReference): Promise<{ bytes: Uint8Array; contentType: string }> {
+export async function generatePortrait(prompt: string, reference?: PortraitReference, variables: Record<string, unknown> = {}): Promise<{ bytes: Uint8Array; contentType: string }> {
   const config = getEffectiveProvider("image");
   if (!config.apiKey && !config.local && !isProviderPreview()) throw new PalaceError("照片生成需要配置图片模型密钥。", 503, "IMAGE_NOT_CONFIGURED");
+  const model = reference ? referenceImageModelName() : config.model;
+  const profile = getImagePromptProfile(config.model, referenceImageModelName(), reference ? 'reference' : 'generation', config);
+  profile.negativePrompt = renderImagePromptTemplate(typeof variables.prompt === 'string' ? variables.prompt : prompt, profile.negativePrompt, variables, { preserveLettering: false });
+  const compiled = await compileImagePrompt({ prompt, model, reference: !!reference, profile, canUseLlm: providerReady() }, completeJson);
+  const nativeReference = !!reference && /^nai-diffusion-4-5-(?:full|curated)$/.test(model);
+  const separateNegative = nativeReference || (!reference && /^nai-diffusion-/.test(model));
+  prompt = separateNegative ? compiled.prompt : withImageConstraints(compiled.prompt, compiled.negativePrompt);
   if (reference) {
-    const referenceConfig = { ...config, model: referenceImageModelName() };
-    return /^nai-diffusion-4-5-(?:full|curated)$/.test(referenceConfig.model)
-      ? generateReferenceImage(referenceConfig, prompt, reference)
+    const referenceConfig = { ...config, model };
+    return nativeReference
+      ? generateReferenceImage(referenceConfig, prompt, reference, compiled.negativePrompt)
       : generateCompatibleReferenceImage(referenceConfig, prompt, reference);
   }
-  const trace = beginProviderTrace({ kind: "image", model: config.model, endpoint: `${config.baseUrl}/images/generations`, prompt }, config.apiKey);
+  const trace = beginProviderTrace({ kind: "image", model: config.model, endpoint: `${config.baseUrl}/images/generations`, prompt, negativePrompt: compiled.negativePrompt }, config.apiKey);
   const started = Date.now();
   try {
   const result = await providerRequest("image", "/images/generations", {
     model: imageModelName(),
     prompt,
+    ...(separateNegative && compiled.negativePrompt ? { negative_prompt: compiled.negativePrompt } : {}),
     n: 1,
     size: isGptImageModel(config.model) ? '1024x1536' : '832x1216',
     ...(isGptImageModel(config.model) ? { output_format: 'png' } : { response_format: 'b64_json' }),

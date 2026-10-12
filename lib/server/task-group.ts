@@ -1,4 +1,4 @@
-import { personalMemoryCount } from '../memory-capacity.ts';
+import { configuredLimit, hasPersonalMemoryCapacity } from '../memory-capacity.ts';
 import { z } from 'zod';
 import type { Agent, AppState, Memory, SocialEvent, Task, TaskArtifact, ToolRun } from '../types.ts';
 import { acceptedRelationship } from '../domain.ts';
@@ -7,7 +7,8 @@ import { contentValidationPolicy } from '../debug-validation.ts';
 import { appointmentContext } from '../appointments.ts';
 import { ownContext } from './guardrails.ts';
 import { validateOutputFile, type OutputFile } from './code-interpreter.ts';
-import { artifactMime, type DeliveryDependencies } from './task-delivery.ts';
+import type { DeliveryDependencies } from './task-delivery.ts';
+import { artifactMime } from './artifact-mime.ts';
 import { PalaceError } from './errors.ts';
 import { PreviewHalt } from './provider-trace.ts';
 import { userProfileContext } from '../user-profile.ts';
@@ -34,7 +35,7 @@ export interface GroupDependencies extends DeliveryDependencies {
   image?(prompt: string, referenceAgentId?: string): Promise<GroupImage>;
   storeImage?(image: GroupImage, metadata: TaskArtifact): Promise<void>;
 }
-export const GROUP_TOOL_LIMIT = 4;
+export const GROUP_REQUEST_TOOL_LIMIT = 4;
 export const GROUP_DEADLINE_MS = 210_000;
 const presentMembers = (state: AppState, task: Task) => state.agents.filter(agent => agent.hired && !agent.archivedAt && task.participants.includes(agent.id));
 const groupHistory = (state: AppState, task: Task) => state.events.filter(event => event.taskId === task.id && event.checked);
@@ -61,25 +62,26 @@ export function taskGroupContext(state: AppState, task: Task, author: Agent, cur
     messages: history.slice(-30).map(event => ({ ...event, sourceId: event.id })),
     pendingRequests: history.filter(event => event.kind === 'request' && event.targetId === author.id && members.some(member => member.id === event.agentId)
       && !history.some(reply => reply.replyTo === event.id && reply.agentId === author.id && ['accept', 'refuse'].includes(reply.kind))).slice(-12),
-    artifacts: (task.artifacts || []).map(artifact => ({ ...artifact, sourceId: artifact.id, ...(artifact.kind === 'image' ? { visuallyObserved: false } : {}) })),
-    cooperation: state.relationships.filter(relation => relation.taskId === task.id),
+    artifacts: (task.artifacts || []).slice(-30).map(artifact => ({ ...artifact, sourceId: artifact.id, ...(artifact.kind === 'image' ? { visuallyObserved: false } : {}) })),
+    cooperation: state.relationships.filter(relation => relation.taskId === task.id).slice(-30),
     validationPolicy: contentValidationPolicy(state), drama: state.settings.drama,
   };
 }
 
-/** 服务端生成的摘要属于保留记忆，我给它单独留了一格：每个任务一条，即使 100 条普通槽位已满也不受影响哦。 */
+/** 服务端生成的摘要属于保留记忆，我给主人单独留了一格：每个任务一条，不占普通记忆容量哦。 */
 /** 我替本任务中的每位在庭成员更新共议摘要记忆——每个任务只留一条，source 以 task-group: 开头。
- * 摘要里收录最近 3 条消息、最近 3 个成果文件名和最近 2 条合作关系，截断到 600 字符。
+ * 摘要里收录最近 3 条消息、最近 3 个成果文件名、最近 2 条合作关系与实际工具状态，截断到 600 字符。
  * 如果已有旧摘要，我就地替换内容和时间戳，不额外占用普通记忆槽位呢。 */
-function rememberGroup(state: AppState, task: Task, timestamp: string) {
+export function rememberGroup(state: AppState, task: Task, timestamp: string) {
   const name = (id: string) => state.agents.find(agent => agent.id === id)?.name || '已离开的成员';
-  const lines = groupHistory(state, task).slice(-3).map(event => {
+  const lines = groupHistory(state, task).filter(event => task.mode === 'group' || event.round < task.round || !event.targetId).slice(-3).map(event => {
     const sender = event.actorType === 'user' ? '用户' : event.actorType === 'system' ? '系统' : name(event.agentId);
     return `${sender}${event.targetId ? `对${name(event.targetId)}` : ''}：${event.content.slice(0, 85)}`;
   });
   const files = (task.artifacts || []).slice(-3).map(artifact => `${artifact.name.slice(0, 45)}（${[...new Set([artifact.agentId, ...(artifact.contributorIds || [])])].map(name).join('、').slice(0, 60)}）`);
   const cooperation = state.relationships.filter(relation => relation.taskId === task.id).slice(-2).map(relation => `${name(relation.from)}与${name(relation.to)}已接受合作`);
-  const content = [`共议「${task.title.slice(0, 60)}」`, files.length ? `实际成果：${files.join('；')}` : '', ...cooperation, ...lines].filter(Boolean).join('；').slice(0, 600);
+  const tools = (task.toolRuns || []).slice(-2).map(run => `${name(run.agentId)}的${run.tool}${run.status === 'ok' ? '已执行' : '未完成'}：${(run.output || run.error || '').slice(0, 70)}`);
+  const content = [`共议「${task.title.slice(0, 60)}」`, files.length ? `实际成果：${files.join('；')}` : '', ...cooperation, ...tools, ...lines].filter(Boolean).join('；').slice(0, 600);
   for (const member of presentMembers(state, task)) {
     const source = `task-group:${task.id}`;
     const existing = member.memories.find(memory => memory.source === source);
@@ -122,15 +124,15 @@ function validatedFinish(action: Finish, state: AppState, task: Task, author: Ag
   }
   const sources = new Set([context.currentSourceId, ...context.messages.map(event => event.id), ...context.pendingRequests.map(event => event.id),
     ...context.longTermMemories.map(memory => memory.source), ...context.shortTermChats.map(chat => chat.sourceId),
-    ...(task.artifacts || []).map(artifact => artifact.id), ...(task.toolRuns || []).map(run => run.id)]);
+    ...context.artifacts.map(artifact => artifact.id), ...(task.toolRuns || []).slice(-12).map(run => run.id)]);
   if (context.userProfile) sources.add(context.userProfile.source);
   if (result.memories.some(memory => !sources.has(memory.source))) invalid('记忆只能引用本人已见消息、已有本人记忆、当前群发言或真实工具及成果来源。');
   return result;
 }
 
-function learn(author: Agent, action: Finish, event: SocialEvent) {
+function learn(author: Agent, action: Finish, event: SocialEvent, memoryLimit?: number) {
   const append = (memory: Omit<Memory, 'id' | 'createdAt'>) => {
-    if (personalMemoryCount(author) >= 100 || author.memories.some(existing => existing.kind === memory.kind && existing.content === memory.content)) return;
+    if (!hasPersonalMemoryCapacity(author, memoryLimit) || author.memories.some(existing => existing.kind === memory.kind && existing.content === memory.content)) return;
     author.memories.push({ ...memory, id: crypto.randomUUID(), createdAt: event.createdAt });
   };
   for (const memory of action.memories) append(memory);
@@ -165,7 +167,8 @@ async function executeTool(state: AppState, task: Task, author: Agent, command: 
     });
     const contributors = [...new Set([author.id, ...bases.flatMap(artifact => [artifact.agentId, ...(artifact.contributorIds || [])])])];
     const metadata = (name: string, mimeType: string, size: number, kind: 'file' | 'image'): TaskArtifact => {
-      if (task.artifacts!.length >= 30) invalidTool('此事务已达到30个成果版本，请新建事务继续。');
+      const artifactLimit = configuredLimit(state.settings.groupArtifactLimit);
+      if (artifactLimit > 0 && task.artifacts!.length >= artifactLimit) invalidTool(`此事务已达到主人设置的${artifactLimit}个成果版本上限，可在设置中调整。`);
       const id = crypto.randomUUID();
       return { id, name, mimeType, size, kind, url: `/api/artifacts/${id}`, createdAt: new Date().toISOString(), agentId: author.id, contributorIds: contributors, derivedFromIds: bases.map(base => base.id), eventId };
     };
@@ -193,7 +196,9 @@ async function executeTool(state: AppState, task: Task, author: Agent, command: 
       if (result.files.length > 5) invalidTool('一次代码运行最多生成5个文件。');
       files = result.files; run.output = result.output.slice(0, 12_000);
     } else {
-      if (!imageAllowed) invalidTool('每位成员每回合最多尝试生成一张图片。');
+      if (!imageAllowed) invalidTool('本回合已达到主人设置的图片尝试次数上限，可在设置中调整。');
+      const artifactLimit = configuredLimit(state.settings.groupArtifactLimit);
+      if (artifactLimit > 0 && task.artifacts!.length >= artifactLimit) invalidTool(`此事务已达到主人设置的${artifactLimit}个成果版本上限，可在设置中调整。`);
       if (!deps.image || !deps.storeImage) invalidTool('本地生图服务尚未配置，本轮可以继续提供文字或文件。');
       if (!input.prompt) invalidTool('image.generate 需要 prompt。');
       if (input.referenceAgentId && !context.members.some(member => member.id === input.referenceAgentId)) invalidTool('参考角色只能是本群当前在庭成员。');
@@ -216,65 +221,74 @@ async function executeTool(state: AppState, task: Task, author: Agent, command: 
       await deps.store(file, artifact); task.artifacts!.push(artifact); run.artifactIds!.push(artifact.id);
     }
   } catch (error) { if (error instanceof PreviewHalt) throw error; run.status = 'error'; run.error = safeToolError(error); delete run.output; }
-  task.toolRuns!.push(run); task.toolRuns = task.toolRuns!.slice(-60);
+  task.toolRuns!.push(run);
 }
 
-/** 每次只许一位成员上前发言、使用有限的工具或发起协作——就像轮流侍茶，一位一位来。调度的事由调用方负责哦。 */
+/** 主人选择不限工具时，我也会分托盘执行：一次请求最多四个工具，再保存进度等调度方续跑。
+ * groupTurn 留在任务上就表示当前成员尚未说完，不能推进发言顺序；结束时才清除它呢。 */
 export async function runGroupTurn(state: AppState, task: Task, author: Agent, deps: GroupDependencies): Promise<string | undefined> {
   if (!presentMembers(state, task).some(member => member.id === author.id)) throw new PalaceError('发言成员必须是本群当前在庭成员。', 400, 'GROUP_REQUIRES_MEMBER');
+  if (task.groupTurn && task.groupTurn.agentId !== author.id) throw new PalaceError('当前成员的回合尚未完成，请先继续原回合。', 409, 'GROUP_TURN_IN_PROGRESS');
   task.artifacts ??= []; task.toolRuns ??= [];
-  const eventId = crypto.randomUUID(), deadline = Date.now() + GROUP_DEADLINE_MS;
-  const before = new Set(task.artifacts.map(artifact => artifact.id));
-  let correction = '', corrected = false, tools = 0, imageAttempted = false, accepted: Finish | undefined;
-  let failure = '本轮已达到工具或时间上限，尚未发布成员发言。';
-  for (let attempt = 0; attempt < GROUP_TOOL_LIMIT + 2 && Date.now() < deadline - 1000; attempt++) {
+  const progress = task.groupTurn ||= { agentId: author.id, eventId: crypto.randomUUID(), toolCalls: 0, imageCalls: 0, corrected: false, correction: '', startedAt: new Date().toISOString() };
+  const eventId = progress.eventId, deadline = Date.now() + GROUP_DEADLINE_MS;
+  const toolLimit = configuredLimit(state.settings.groupToolLimit), imageLimit = configuredLimit(state.settings.groupImageLimit);
+  let requestTools = 0, accepted: Finish | undefined, failure: string | undefined;
+  for (let attempt = 0; attempt < GROUP_REQUEST_TOOL_LIMIT + 2 && Date.now() < deadline - 1000; attempt++) {
+    if (requestTools >= GROUP_REQUEST_TOOL_LIMIT && (toolLimit === 0 || progress.toolCalls < toolLimit)) break;
     const context = taskGroupContext(state, task, author, eventId);
     try {
       const fileContents = await beforeDeadline(sharedFiles(task, deps), deadline);
       const input = { ...context, fileContents, tools: ['web.search', 'web.read', 'code.run', 'file.write', ...(deps.image && deps.storeImage ? ['image.generate'] : [])],
-        imageGenerationAvailable: !!(deps.image && deps.storeImage), maxToolCalls: GROUP_TOOL_LIMIT, remainingToolCalls: GROUP_TOOL_LIMIT - tools,
-        mustFinish: tools >= GROUP_TOOL_LIMIT, imageAlreadyAttempted: imageAttempted,
-        imagePolicy: imageAttempted ? '本回合已经尝试过生图，禁止再次调用 image.generate；请继续文字、文件或直接 finish。' : '最多尝试一张图片，prompt 最多1200字符，人物图片应指定 referenceAgentId。',
-        previousTools: task.toolRuns.slice(-12), correction };
+        imageGenerationAvailable: !!(deps.image && deps.storeImage), maxToolCalls: toolLimit, remainingToolCalls: toolLimit === 0 ? null : Math.max(0, toolLimit - progress.toolCalls),
+        mustFinish: toolLimit > 0 && progress.toolCalls >= toolLimit, toolCallsUsed: progress.toolCalls, imageAlreadyAttempted: progress.imageCalls > 0,
+        maxImageCalls: imageLimit, remainingImageCalls: imageLimit === 0 ? null : Math.max(0, imageLimit - progress.imageCalls),
+        maxArtifactVersions: configuredLimit(state.settings.groupArtifactLimit),
+        imagePolicy: imageLimit > 0 && progress.imageCalls >= imageLimit ? '本回合已经达到设置的图片尝试次数上限，禁止再次调用 image.generate；请继续文字、文件或直接 finish。' : `本回合图片尝试${imageLimit === 0 ? '不限次数' : `最多${imageLimit}次`}，prompt 最多1200字符，人物图片应指定 referenceAgentId。`,
+        previousTools: task.toolRuns.slice(-12), correction: progress.correction };
       const parsed = groupCommandSchema.safeParse(await deps.generate(deps.prompt('task.group'), input, 5500, Math.max(1, Math.min(42_000, deadline - Date.now()))));
       if (!parsed.success) {
-        if (corrected) { failure = '本轮发言两次未通过结构检查，已暂缓发布。'; break; }
-        corrected = true; correction = `JSON结构不合格：${parsed.error.issues.slice(0, 4).map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`; continue;
+        if (progress.corrected) { failure = '本轮发言两次未通过结构检查，已暂缓发布。'; break; }
+        progress.corrected = true; progress.correction = `JSON结构不合格：${parsed.error.issues.slice(0, 4).map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`; continue;
       }
       const command = parsed.data;
       if (command.type === 'tool') {
-        if (tools >= GROUP_TOOL_LIMIT) { failure = '本轮工具预算已用完，未执行额外工具或发布未经审校的发言。'; break; }
-        tools++;
-        const imageAllowed = !imageAttempted;
-        if (command.tool === 'image.generate') imageAttempted = true;
+        if (toolLimit > 0 && progress.toolCalls >= toolLimit) { failure = '本轮工具预算已用完，未执行额外工具或发布未经审校的发言。'; break; }
+        progress.toolCalls++; requestTools++;
+        const imageAllowed = imageLimit === 0 || progress.imageCalls < imageLimit;
+        if (command.tool === 'image.generate') progress.imageCalls++;
         await executeTool(state, task, author, command, deps, context, eventId, deadline, imageAllowed);
-        correction = ''; continue;
+        progress.correction = ''; rememberGroup(state, task, new Date().toISOString()); continue;
       }
       let candidate: Finish;
       try { candidate = validatedFinish(command, state, task, author, context); }
       catch (error) {
-        if (corrected) { failure = '本轮发言仍未通过权限或记忆来源检查，已暂缓发布。'; break; }
-        corrected = true; correction = error instanceof PalaceError ? error.message : '发言协议不合格。'; continue;
+        if (progress.corrected) { failure = '本轮发言仍未通过权限或记忆来源检查，已暂缓发布。'; break; }
+        progress.corrected = true; progress.correction = error instanceof PalaceError ? error.message : '发言协议不合格。'; continue;
       }
       const verdict = verdictSchema.safeParse(await deps.generate(deps.prompt('task.group.review'), {
-        context, fileContents, candidate, actualToolResults: task.toolRuns.slice(-12), artifacts: task.artifacts,
+        context, fileContents, candidate, actualToolResults: task.toolRuns.slice(-12), artifacts: context.artifacts,
         purpose: '核验群发言、记忆及策略与人设、群聊事实及实际成果相符；文字回复也可以完整完成任务。', validationPolicy: contentValidationPolicy(state),
       }, 700, Math.max(1, Math.min(24_000, deadline - Date.now()))));
       if (verdict.success && verdict.data.pass) { accepted = candidate; break; }
-      failure = '本轮发言未通过独立审校，已暂缓发布。';
-      if (corrected) break;
-      corrected = true; correction = verdict.success ? verdict.data.reason : '审校结论需要 pass 布尔值和 reason 字符串。';
+      if (progress.corrected) { failure = '本轮发言未通过独立审校，已暂缓发布。'; break; }
+      progress.corrected = true; progress.correction = verdict.success ? verdict.data.reason : '审校结论需要 pass 布尔值和 reason 字符串。';
     } catch (error) { if (error instanceof PreviewHalt) throw error; failure = '本轮模型或审校调用未完成，已保留真实工具记录和已生成成果。'; break; }
   }
-  const artifactIds = task.artifacts.filter(artifact => !before.has(artifact.id)).map(artifact => artifact.id);
   const createdAt = new Date().toISOString();
+  state.updatedAt = createdAt;
+  // 主人选择不限次数也不表示要反复付费重试故障；整段工具都失败时，我会先停下来保存原因。
+  if (!accepted && !failure && requestTools > 0 && task.toolRuns.slice(-requestTools).every(run => run.status === 'error')) failure = '本次分步执行的工具均未成功，已暂停自动推进；请检查工具错误或调整要求后再继续。';
+  if (!accepted && !failure) { rememberGroup(state, task, createdAt); return undefined; }
+  delete task.groupTurn;
+  const artifactIds = task.artifacts.filter(artifact => artifact.eventId === eventId).map(artifact => artifact.id);
   if (accepted) {
     const event: SocialEvent = { id: eventId, taskId: task.id, round: task.round, agentId: author.id, actorType: 'agent', kind: accepted.kind,
       ...(accepted.targetId ? { targetId: accepted.targetId } : {}), ...(accepted.replyTo ? { replyTo: accepted.replyTo } : {}), content: accepted.content, checked: true, createdAt, artifactIds };
     state.events.push(event);
     const relationship = acceptedRelationship(event, state.events);
     if (relationship && !state.relationships.some(existing => existing.taskId === task.id && existing.from === relationship.from && existing.to === relationship.to && existing.kind === 'cooperation')) state.relationships.push({ ...relationship, kind: 'cooperation' });
-    learn(author, accepted, event); rememberGroup(state, task, createdAt); state.updatedAt = createdAt;
+    learn(author, accepted, event, state.settings.memoryLimit); rememberGroup(state, task, createdAt);
     return undefined;
   }
   state.events.push({ id: eventId, taskId: task.id, round: task.round, agentId: 'system', actorType: 'system', kind: 'submit', checked: true, createdAt, artifactIds,

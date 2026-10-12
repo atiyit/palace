@@ -10,6 +10,7 @@ import { zipSync } from 'fflate';
 import type { AppState, ChatMessage } from '../lib/types.ts';
 import type { DebugResult } from '../lib/debug-types.ts';
 import type { ImagePromptStyle } from '../lib/image-prompts.ts';
+import { createImagePromptProfile } from '../lib/image-prompts.ts';
 
 const prefix = 'palace-image-config-api-test-', fixtureRoot = mkdtempSync(join(tmpdir(), prefix));
 const previousDirectory = process.env.PALACE_DATA_DIR; process.env.PALACE_DATA_DIR = join(fixtureRoot, 'isolated-data');
@@ -60,6 +61,31 @@ const saveImage = (body: object) => post(settings, '/api/provider-settings', { a
 async function getState(): Promise<AppState> { const response: Response = await withLocalRequest(() => palace.GET()); assert.equal(response.status, 200); return response.json(); }
 function failedMessage(id: string): ChatMessage { return { id, role: 'assistant', content: '我给你看看换上旅行装的样子。', checked: true, createdAt: '2026-10-12T00:00:00Z', image: { status: 'failed', request: 'same character wearing a travel outfit', prompt: 'previous failed attempt', model: 'old-model' } }; }
 
+test('independent image prompt profiles persist through routes with strict validation and no provider call', async () => {
+  const beforeCalls = calls.length;
+  const promptProfiles = { generation: createImagePromptProfile('nai5'), reference: createImagePromptProfile('nano-banana') };
+  promptProfiles.reference.positivePrompt = '参考专用 {{appearance}} {{prompt}}';
+  promptProfiles.reference.negativePrompt = 'Preserve the requested surface material.';
+  const saved = await saveImage({ promptProfiles });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.value.settings.image.promptProfiles, promptProfiles);
+  const reread: Response = await withLocalRequest(() => settings.GET());
+  assert.deepEqual((await reread.json() as any).image.promptProfiles, promptProfiles);
+  for (const malformed of [
+    { generation: promptProfiles.generation },
+    { ...promptProfiles, reference: { ...promptProfiles.reference, preset: 'unknown' } },
+    { ...promptProfiles, reference: { ...promptProfiles.reference, llmEnabled: 'true' } },
+    { ...promptProfiles, reference: { ...promptProfiles.reference, instructions: 'bad\x00value' } },
+    { ...promptProfiles, reference: { ...promptProfiles.reference, negativePrompt: 'x'.repeat(3001) } },
+    { ...promptProfiles, reference: { ...promptProfiles.reference, sampler: 'unsupported' } },
+  ]) assert.equal((await saveImage({ promptProfiles: malformed })).status, 400);
+  assert.equal((await post(settings, '/api/provider-settings', { action: 'save', kind: 'text', promptProfiles })).status, 400);
+  const effective = await withProviderSettings(userId, () => getEffectiveProvider('image'));
+  assert.deepEqual(effective.promptProfiles, promptProfiles);
+  assert.equal(calls.length, beforeCalls);
+  assert.equal((await post(settings, '/api/provider-settings', { action: 'reset', kind: 'image' })).status, 200);
+});
+
 test('public settings persist separate image models and every preset reaches actual portrait and reference requests once', async () => {
   const initial = await getState(), person = initial.agents[0];
   assert.equal((await act('hire', { agentId: person.id })).status, 200);
@@ -91,7 +117,7 @@ test('public settings persist separate image models and every preset reaches act
     const preview = await post<DebugResult>(debug, '/api/debug', { action: 'preview', stage: 'chat-image', promptId: 'chat.image.template', agentId: person.id, input: { request: 'same character wearing a travel outfit', userMessage: '看看你穿旅行装的样子。' } });
     assert.equal(preview.status, 200); assert.equal(preview.value.status, 'preview'); assert.equal(calls.length, beforePreview);
     assert.equal(preview.value.trace[0].model, 'gpt-image-1'); assert.equal(preview.value.trace[0].endpoint, `${providerBase}/v1/images/edits`);
-    if (style === 'novelai') assert.ok(preview.value.trace[0].prompt!.startsWith('best quality'));
+    if (style === 'novelai') assert.ok(preview.value.trace[0].prompt!.includes('best quality, very aesthetic, detailed composition'));
     if (style === 'gpt-image') assert.ok(preview.value.trace[0].prompt!.startsWith('Create a single finished image'));
     if (style === 'custom') assert.ok(preview.value.trace[0].prompt!.startsWith(`MY-CUSTOM ${person.name}`));
   }
@@ -122,6 +148,62 @@ test('image-only fields cannot leak into text settings and invalid saves preserv
   assert.deepEqual(await withProviderSettings(userId, () => ({ ...getEffectiveProvider('image') })), before); assert.equal(calls.length, beforeCalls);
   const reset = await post(settings, '/api/provider-settings', { action: 'reset', kind: 'image' }); assert.equal(reset.status, 200);
   assert.equal(reset.value.settings.image.model, 'nai-diffusion-5-full'); assert.equal(reset.value.settings.image.referenceModel, 'nai-diffusion-4-5-full'); assert.equal(reset.value.settings.image.promptStyle, 'default'); assert.equal(reset.value.settings.image.customPrompt, '');
+});
+
+test('both profile slots compile through the configured text API and native reference receives every negative field', async () => {
+  const person = (await getState()).agents[0];
+  const profiles = { generation: createImagePromptProfile('gpt-image'), reference: createImagePromptProfile('nai45') };
+  profiles.generation.instructions = 'GENERATION-INSTRUCTIONS'; profiles.generation.positivePrompt = 'GENERATION-TEMPLATE {{prompt}}';
+  profiles.generation.negativePrompt = 'avoid duplicate {{name}} with {{appearance}}';
+  profiles.reference.instructions = 'REFERENCE-INSTRUCTIONS'; profiles.reference.positivePrompt = 'REFERENCE-TEMPLATE {{appearance}} {{prompt}}';
+  profiles.reference.negativePrompt = 'unwanted sleeve for {{name}} in {{request}} / {{userMessage}}';
+  await saveImage({ baseUrl: `${providerBase}/v1`, local: false, model: 'gpt-image-1', referenceModel: 'nai-diffusion-4-5-full', apiKey: 'image-config-test-only', promptProfiles: profiles });
+  await post(settings, '/api/provider-settings', { action: 'save', kind: 'text', baseUrl: 'https://compiler.example.test/v1', protocol: 'openai-chat', local: false, model: 'compiler-test', apiKey: 'compiler-test-only' });
+  const imageFetch = globalThis.fetch;
+  const textRequests: any[] = [];
+  globalThis.fetch = async (url, init) => {
+    if (String(url) !== 'https://compiler.example.test/v1/chat/completions') return imageFetch(url, init);
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer compiler-test-only');
+    const body = JSON.parse(String(init?.body)); textRequests.push(body);
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ prompt: 'FINAL-COMPILED visual scene', negativePrompt: 'extra sleeves' }) }, finish_reason: 'stop' }] });
+  };
+  try {
+    assert.equal((await act('portrait', { agentId: person.id })).status, 200);
+    assert.equal(textRequests.length, 1); assert.match(textRequests[0].messages[0].content, /GENERATION-INSTRUCTIONS/);
+    assert.equal(textRequests[0].messages[1].content.split('GENERATION-TEMPLATE').length - 1, 1);
+    assert.equal(JSON.parse(textRequests[0].messages[1].content).negativePrompt, `avoid duplicate ${person.name} with ${person.appearance}`);
+    assert.match(calls.at(-1)!.prompt, /FINAL-COMPILED/); assert.match(calls.at(-1)!.prompt, /extra sleeves/); assert.equal(calls.at(-1)!.body.negative_prompt, undefined);
+    const reply = failedMessage('compiled-reference');
+    await mutateState(userId, crypto.randomUUID(), createInitialState, async (state: AppState) => { state.agents[0].chats.push({ id: 'compiled-reference-user', role: 'user', content: '请展示旅行装', createdAt: reply.createdAt }, reply); });
+    const response = await act('chat.image.retry', { agentId: person.id, messageId: reply.id });
+    assert.equal(response.status, 200); assert.equal(textRequests.length, 2); assert.match(textRequests[1].messages[0].content, /REFERENCE-INSTRUCTIONS/);
+    const input = JSON.parse(textRequests[1].messages[1].content); assert.equal(input.referenceAttached, true); assert.equal(input.negativePrompt, `unwanted sleeve for ${person.name} in ${reply.image!.request} / 请展示旅行装`);
+    assert.equal(input.visualBrief.split('REFERENCE-TEMPLATE').length - 1, 1); assert.equal(input.visualBrief.includes('{{appearance}}'), false);
+    const native = calls.at(-1)!.body; assert.match(native.input, /FINAL-COMPILED/); assert.match(native.parameters.uc, /extra sleeves/); assert.match(native.parameters.uc, /text/);
+    assert.equal(native.parameters.uc, native.parameters.negative_prompt); assert.equal(native.parameters.uc, native.parameters.v4_negative_prompt.caption.base_caption);
+    const before = calls.length;
+    const preview = await post<DebugResult>(debug, '/api/debug', { action: 'preview', stage: 'chat-image', agentId: person.id });
+    assert.equal(preview.value.trace[0].kind, 'text'); assert.match(preview.value.trace[0].messages![0].content, /REFERENCE-INSTRUCTIONS/);
+    assert.equal(calls.length, before); assert.equal(textRequests.length, 2, 'preview sends neither compilation nor image request');
+  } finally {
+    globalThis.fetch = imageFetch;
+    await post(settings, '/api/provider-settings', { action: 'reset', kind: 'text' });
+  }
+});
+
+test('custom reference templates keep all suffixes before literal lettering and send rendered negative variables without preset defaults', async () => {
+  const person = (await getState()).agents[0];
+  const profile = { ...createImagePromptProfile('custom'), llmEnabled: false, positivePrompt: '{{prompt}}\nCUSTOM-SUFFIX', negativePrompt: 'unwanted {{name}}' };
+  await saveImage({ promptProfiles: { generation: profile, reference: profile } });
+  const reply = failedMessage('literal-reference');
+  reply.image!.request = 'A welcome poster\nText: Welcome home';
+  await mutateState(userId, crypto.randomUUID(), createInitialState, async (state: AppState) => { state.agents[0].chats.push(reply); });
+  assert.equal((await act('chat.image.retry', { agentId: person.id, messageId: reply.id })).status, 200);
+  const native = calls.at(-1)!.body;
+  assert.ok(native.input.endsWith('CUSTOM-SUFFIX\nText: Welcome home'));
+  assert.equal(native.input.split('Text:').length - 1, 1);
+  assert.equal(native.parameters.uc, `unwanted ${person.name}`);
+  assert.equal(native.parameters.uc, native.parameters.v4_negative_prompt.caption.base_caption);
 });
 
 test('real settings routes persist native protocols, local opt-in and vision independently without leaking cloud keys', async () => {

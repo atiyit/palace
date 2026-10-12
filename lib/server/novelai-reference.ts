@@ -77,9 +77,10 @@ export async function buildCharacterReferenceRequest(
   configuredModel: string,
   prompt: string,
   reference: PortraitReference,
+  negativePrompt?: string,
 ) {
   const model = characterReferenceModel(configuredModel);
-  const visual = referenceImagePrompts(prompt);
+  const visual = negativePrompt === undefined ? referenceImagePrompts(prompt) : { prompt, negativePrompt };
   let encoded: string;
   let canvas: { width: number; height: number };
   try {

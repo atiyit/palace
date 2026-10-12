@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialState } from '../lib/seeds.ts';
-import { deliverTask, type DeliveryDependencies } from '../lib/server/task-delivery.ts';
+import { deliverTask, DELIVERY_REQUEST_TOOL_LIMIT, type DeliveryDependencies } from '../lib/server/task-delivery.ts';
 import { runCode } from '../lib/server/code-interpreter.ts';
 import type { Task, TaskArtifact, SocialEvent } from '../lib/types.ts';
 
@@ -91,10 +91,13 @@ test('failed artifact storage does not expose a downloadable metadata record', a
   assert.equal(task.toolRuns![0].error, 'storage unavailable'); assert.equal(state.events.length, 0);
 });
 
-test('tool budget cannot exceed six calls even when the model continues requesting tools', async () => {
+test('a finite delivery tool budget persists across bounded requests', async () => {
   const { state, task } = fixture();
+  state.settings.groupToolLimit = 6;
   let searches = 0;
   const run = scripted(Array.from({ length: 7 }, () => ({ type: 'tool', tool: 'web.search', input: { query: '公开资料' } })), { search: async () => { searches++; return []; } });
+  await deliverTask(state, task, run.deps);
+  assert.equal(searches, DELIVERY_REQUEST_TOOL_LIMIT); assert.equal(task.deliveryProgress?.toolCalls, 4);
   await deliverTask(state, task, run.deps);
   assert.equal(searches, 6); assert.equal(task.toolRuns!.length, 6); assert.equal(run.calls.length, 7);
   assert.equal(run.calls[6].input.mustFinish, true); assert.equal(state.events.length, 0);
@@ -133,6 +136,7 @@ test('delivery respects task-round visibility instead of reading another members
   const ids = run.calls[0].input.contributions.map((item: SocialEvent) => item.id);
   assert.deepEqual(ids, ['old-public', 'current-public', 'current-inbox', 'current-own']);
   assert.equal(JSON.stringify(run.calls).includes('OTHER_DIRECTED_CURRENT'), false);
+  assert.equal(JSON.stringify(state.agents.map(agent => agent.memories)).includes('OTHER_DIRECTED_CURRENT'), false, 'shared delivery summaries cannot publish private current-round exchanges from legacy tasks');
 });
 
 test('subsequent delivery can use actual prior artifacts and tool records as shared workspace context', async () => {
@@ -149,10 +153,26 @@ test('subsequent delivery can use actual prior artifacts and tool records as sha
   assert.equal(task.artifacts!.length, 2);
 });
 
-test('delivery rotates across members even after a run consumes exactly six tools', async () => {
+test('unlimited delivery resumes its original member across chunks and rotates only after completion', async () => {
   const { state, task } = fixture();
-  const first = scripted(Array.from({ length: 7 }, () => ({ type: 'tool', tool: 'web.search', input: { query: '公开资料' } })));
+  const first = scripted(Array.from({ length: 4 }, () => ({ type: 'tool', tool: 'web.search', input: { query: '公开资料' } })));
   await deliverTask(state, task, first.deps);
   const second = scripted([write(), finish, approved]); await deliverTask(state, task, second.deps);
-  assert.notEqual(second.calls[0].input.immutableCore.name, first.calls[0].input.immutableCore.name);
+  assert.equal(second.calls[0].input.immutableCore.name, first.calls[0].input.immutableCore.name);
+  assert.equal(second.calls[0].input.maxToolCalls, 0); assert.equal(second.calls[0].input.remainingToolCalls, null);
+  assert.equal(task.deliveryProgress, undefined);
+  const third = scripted([finish, approved]); await deliverTask(state, task, third.deps);
+  assert.notEqual(third.calls[0].input.immutableCore.name, first.calls[0].input.immutableCore.name);
+});
+
+test('legacy delivery retains archives and permits more than thirty artifacts by default', async () => {
+  const { state, task } = fixture();
+  task.artifacts = Array.from({ length: 31 }, (_, index) => ({ id: `old-${index}`, agentId: state.agents[0].id, name: `old-${index}.txt`, mimeType: 'text/plain', size: 1, createdAt: NOW, url: `/api/artifacts/old-${index}` }));
+  task.toolRuns = Array.from({ length: 60 }, (_, index) => ({ id: `old-run-${index}`, agentId: state.agents[0].id, tool: 'web.search', inputSummary: '旧记录', status: 'ok', createdAt: NOW }));
+  await deliverTask(state, task, scripted([write(), finish, approved]).deps);
+  assert.equal(task.artifacts.length, 32); assert.equal(task.toolRuns.length, 61);
+  assert.equal(task.artifacts[0].id, 'old-0'); assert.equal(task.toolRuns[0].id, 'old-run-0');
+  state.settings.groupArtifactLimit = 32;
+  await deliverTask(state, task, scripted([write(), finish, approved]).deps);
+  assert.equal(task.artifacts.length, 32); assert.equal(task.toolRuns.at(-1)!.status, 'error');
 });

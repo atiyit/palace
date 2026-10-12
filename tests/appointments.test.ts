@@ -75,9 +75,9 @@ test('removal and replacement remain authoritative even when long-term memory ha
     source: `source-${index}`, createdAt: metadata.now,
   }));
   const memories = structuredClone(agent.memories);
-  setAppointment(agent, { title: '新协调人' }, { ...metadata, id: 'appointment-2' });
+  setAppointment(agent, { title: '新协调人' }, { ...metadata, id: 'appointment-2', memoryLimit: 100 });
   assert.equal(ownContext(agent, '协调人').appointment?.title, '新协调人');
-  removeAppointment(agent, { ...metadata, id: 'appointment-3' });
+  removeAppointment(agent, { ...metadata, id: 'appointment-3', memoryLimit: 100 });
   assert.equal(agent.appointment, undefined);
   assert.equal(ownContext(agent, '协调人').appointment, null);
   assert.deepEqual(agent.memories, memories);

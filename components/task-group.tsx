@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, AtSign, BookOpen, Check, ChevronDown, CircleHelp, Code2, Download, ExternalLink, FileText, Globe, Heart, ImagePlus, LoaderCircle, MessageCircle, PackageOpen, Pause, Play, Reply, Send, Sparkles, Users } from "lucide-react";
+import { ArrowDown, AtSign, BookOpen, Check, ChevronDown, CircleHelp, Code2, Download, ExternalLink, FileText, Globe, Heart, ImagePlus, LoaderCircle, MessageCircle, PackageOpen, Pause, Play, Reply, Send, Sparkles, Square, Users } from "lucide-react";
 import type { Agent, AppState as PublicState, SocialEvent, Task, TaskArtifact, ToolRun } from "@/lib/types";
 import { RichText } from "@/components/rich-text";
 
@@ -13,6 +13,7 @@ export interface TaskGroupProps {
   pausing: boolean;
   onPause: () => void;
   onRun: () => void;
+  onFinish: () => void;
   onAgent: (agent: Agent) => void;
   onAdopt: (eventId: string) => void;
   onSend: (message: string, rounds: number) => Promise<boolean>;
@@ -62,7 +63,7 @@ function GroupTools({ runs, agents }: { runs: ToolRun[]; agents: Agent[] }) {
   }) : <p className="tg-resources-empty">尚未调用工具。成员可以先讨论，确有需要时再搜索、计算、写文件或生成图片。</p>}</div></details>;
 }
 
-export function TaskGroup({ task, state, busy, running, pausing, onPause, onRun, onAgent, onAdopt, onSend, onContinue }: TaskGroupProps) {
+export function TaskGroup({ task, state, busy, running, pausing, onPause, onRun, onFinish, onAgent, onAdopt, onSend, onContinue }: TaskGroupProps) {
   const [message, setMessage] = useState("");
   const [rounds, setRounds] = useState(1);
   const [localOperation, setLocalOperation] = useState<"send" | "continue" | null>(null);
@@ -79,9 +80,9 @@ export function TaskGroup({ task, state, busy, running, pausing, onPause, onRun,
   const artifacts = task?.artifacts || [];
   const runs = task?.toolRuns || [];
   const participants = task?.participants.map(id => state.agents.find(agent => agent.id === id)).filter((agent): agent is Agent => !!agent) || [];
-  const active = participants.filter(agent => agent.hired && !agent.archivedAt).length >= 2;
+  const active = participants.some(agent => agent.hired && !agent.archivedAt);
   const locked = busy || running || pausing || !!localOperation;
-  const canSend = !!task && active && state.config.textReady && !locked;
+  const canSend = !!task && active && state.config.textReady && !locked && Number.isSafeInteger(rounds) && rounds >= 0;
 
   useEffect(() => { setMessage(""); setRounds(1); setError(""); setUnread(false); nearBottom.current = true; }, [task?.id]);
   useEffect(() => {
@@ -131,7 +132,7 @@ export function TaskGroup({ task, state, busy, running, pausing, onPause, onRun,
   if (!task) return <section className="tg-empty panel"><MessageCircle size={34}/><h2>把一件事，放进群聊。</h2><p>创建共议后，你与参与成员可以在这里连续交流。想法、彼此回应、图片和实际文件会留在同一段对话中。</p><span>先创建一个事务，邀请她们一起开始。</span></section>;
 
   return <section className="task-group" aria-label="事务群聊">
-    <div className="tg-conversation panel"><header className="tg-heading"><div><span className="eyebrow">A SHARED CONVERSATION</span><h2>{task.title}</h2><p><span className={`status-dot ${running ? "" : "off"}`}/>{running ? pausing ? "当前发言结束后暂停" : "正在共议" : task.status === "completed" ? "本轮已结束，可以继续交流" : task.status === "paused" ? "共议已暂停" : "等待继续本轮"}<span>· 第 {Math.min(task.round, task.rounds)} / {task.rounds} 轮</span></p></div>{running ? <button type="button" className="button secondary small" disabled={pausing} onClick={onPause}><Pause size={12}/>{pausing ? "正在等候暂停" : "暂停"}</button> : task.status !== "completed" ? <button type="button" className="button secondary small" disabled={locked || !state.config.textReady || !active} onClick={onRun}><Play size={12}/>继续本轮</button> : <span className="tg-finished"><Check size={13}/>本轮完成</span>}</header>
+    <div className="tg-conversation panel"><header className="tg-heading"><div><span className="eyebrow">A SHARED CONVERSATION</span><h2>{task.title}</h2><p><span className={`status-dot ${running ? "" : "off"}`}/>{running ? pausing ? "正在完成当前操作" : "正在共议" : task.status === "completed" ? "本次已结束，可以继续交流" : task.status === "paused" ? "共议已暂停" : "等待继续本轮"}<span>{task.rounds === 0 ? `· 第 ${task.round} 轮 · 持续共议` : `· 第 ${Math.min(task.round, task.rounds)} / ${task.rounds} 轮`}</span></p></div><div className="tg-heading-actions">{running ? <button type="button" className="button secondary small" disabled={pausing} onClick={onPause}><Pause size={12}/>{pausing ? "正在等候暂停" : "暂停"}</button> : task.status !== "completed" ? <button type="button" className="button secondary small" disabled={locked || !state.config.textReady || !active} onClick={onRun}><Play size={12}/>继续本轮</button> : <span className="tg-finished"><Check size={13}/>本次完成</span>}{task.status !== 'completed' && <button type="button" className="button ghost small" disabled={pausing || !!localOperation || (!running && busy)} onClick={onFinish}><Square size={12}/>结束共议</button>}</div></header>
       <div className="tg-participants"><span><Users size={13}/>{task.participants.length} 位参与者</span><div>{participants.map(agent => <button type="button" className={agent.archivedAt || !agent.hired ? "away" : ""} key={agent.id} onClick={() => onAgent(agent)}><GroupAvatar agent={agent}/>{agent.name}{(agent.archivedAt || !agent.hired) && <small>已离开</small>}</button>)}</div></div>
       <div className="tg-memory-note"><BookOpen size={13}/><p>{events.length ? "群聊记录已保存，成员会结合本群上下文与各自记忆继续。" : "成员会结合本群的公开交流与各自记忆参与。"} 私聊与私人记忆不会在群里公开。</p></div>
       {task.lastError && <div className="tg-error" role="alert"><CircleHelp size={14}/><span>{task.lastError}</span></div>}
@@ -149,15 +150,15 @@ export function TaskGroup({ task, state, busy, running, pausing, onPause, onRun,
             </div>
           </article>;
         }) : <div className="tg-first-message"><MessageCircle size={27}/><h3>给讨论留一个开始。</h3><p>继续本轮，或在下方补充想法。她们可以先用文字回应，需要时再带来文件与图片。</p></div>}
-        {running && <div className="tg-running" role="status"><LoaderCircle size={14} className="spin"/><span>{pausing ? "等待当前回应结束，随后暂停。" : "成员正在结合讨论作出回应；需要使用工具时，耗时可能更久。"}</span></div>}
+        {running && <div className="tg-running" role="status"><LoaderCircle size={14} className="spin"/><span>{pausing ? "正在保存当前操作，随后暂停或结束。" : "成员正在结合讨论作出回应；需要使用工具时，耗时可能更久。"}</span></div>}
       </div>
       {unread && <button type="button" className="tg-new-messages" onClick={scrollLatest}><ArrowDown size={13}/>查看最新发言</button>}
       <form className="tg-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
         <div className="tg-composer-top"><label htmlFor={`tg-input-${task.id}`}>加入这场对话</label><details className="tg-mention-picker"><summary><AtSign size={12}/>提及成员</summary><div>{participants.map(agent => <button type="button" key={agent.id} disabled={locked} onClick={() => mention(agent)}>@{agent.name}</button>)}</div></details></div>
         <textarea ref={input} id={`tg-input-${task.id}`} value={message} maxLength={4000} rows={3} disabled={locked} placeholder="补充需求、回应她们，或 @一位成员继续讨论。例如：先比较两个方向，再一起把预算表补完整。" onChange={event => { setMessage(event.target.value); setError(""); }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }}/>
         {error && <p className="tg-composer-error" role="alert">{error}</p>}
-        <div className="tg-composer-bottom"><div className="tg-round-picker"><span>{task.status === "completed" ? "接着聊" : "下一次续聊"}</span>{[1, 2, 3].map(number => <button type="button" key={number} disabled={locked || task.status !== "completed"} className={rounds === number ? "active" : ""} aria-pressed={rounds === number} onClick={() => setRounds(number)}>{number} 轮</button>)}</div><div className="tg-send-actions">{task.status === "completed" && <button type="button" className="button secondary" disabled={!canSend} onClick={() => void continueGroup()}>{localOperation === "continue" ? <LoaderCircle size={13} className="spin"/> : <Play size={13}/>}继续共议</button>}<button type="submit" className="button primary" disabled={!canSend || !message.trim()}>{localOperation === "send" ? <LoaderCircle size={13} className="spin"/> : <Send size={13}/>}发送到群聊</button></div></div>
-        <p className="tg-composer-hint">{!active ? "当前在场成员不足两位，请恢复成员或新建事务。" : !state.config.textReady ? "请先在庭院设置连接文本模型。" : running ? "本次共议进行中，暂停或本轮结束后可以继续发言。" : "Enter 发送，Shift + Enter 换行。只想让她们接着交流，也可以直接继续共议。"}</p>
+        <div className="tg-composer-bottom"><div className="tg-round-picker"><label htmlFor={`tg-rounds-${task.id}`}>{task.status === "completed" ? "接着聊几轮" : "下次续聊轮数"}</label><input id={`tg-rounds-${task.id}`} className="unlimited-number" type="number" min={0} step={1} inputMode="numeric" value={rounds} disabled={locked} onChange={event => setRounds(Number(event.target.value))}/><span>0 = 不限</span></div><div className="tg-send-actions">{task.status === "completed" && <button type="button" className="button secondary" disabled={!canSend} onClick={() => void continueGroup()}>{localOperation === "continue" ? <LoaderCircle size={13} className="spin"/> : <Play size={13}/>}继续共议</button>}<button type="submit" className="button primary" disabled={!canSend || !message.trim()}>{localOperation === "send" ? <LoaderCircle size={13} className="spin"/> : <Send size={13}/>}发送到群聊</button></div></div>
+        <p className="tg-composer-hint">{!active ? "当前没有在场的参与成员，请恢复成员或新建事务。" : !state.config.textReady ? "请先在庭院设置连接文本模型。" : running ? "本次共议在后台继续，暂停或结束后可以发言。" : "Enter 发送，Shift + Enter 换行。0 轮会持续交流，可通过结束共议保留成果并停止。"}</p>
       </form>
     </div>
     <details className="tg-resources tg-shared"><summary><PackageOpen size={15}/><strong>全部共享成果</strong><span>{artifacts.length} 份</span><ChevronDown size={14}/></summary><div className="tg-resources-body"><p className="tg-resources-explainer">本事务保存的全部文件与图片，包括早期尚未关联到某条发言的成果。</p>{artifacts.length ? <div className="tg-shared-grid">{artifacts.map(artifact => <GroupArtifact key={artifact.id} artifact={artifact} artifacts={artifacts} agents={state.agents} onAgent={onAgent}/>)}</div> : <p className="tg-resources-empty">还没有共享文件或图片。纯文字讨论同样会保留在群聊中。</p>}</div></details>

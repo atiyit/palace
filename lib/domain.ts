@@ -38,7 +38,11 @@ export function applyFeedback(agent: Agent, event: 'like' | 'hire' | 'chat'): vo
   }
 }
 export function validateSettings(input: Partial<Settings>, current: Settings): Settings {
-  return { exploration: typeof input.exploration === 'number' && Number.isFinite(input.exploration) ? clamp(input.exploration, .05, .5) : current.exploration, drama: typeof input.drama === 'number' && Number.isFinite(input.drama) ? clamp(input.drama, 0, 1) : current.drama };
+  const settings: Settings = { ...current, exploration: typeof input.exploration === 'number' && Number.isFinite(input.exploration) ? clamp(input.exploration, .05, .5) : current.exploration, drama: typeof input.drama === 'number' && Number.isFinite(input.drama) ? clamp(input.drama, 0, 1) : current.drama };
+  for (const key of ['memoryLimit', 'groupToolLimit', 'groupImageLimit', 'groupArtifactLimit'] as const) {
+    if (typeof input[key] === 'number' && Number.isSafeInteger(input[key]) && input[key]! >= 0) settings[key] = input[key];
+  }
+  return settings;
 }
 export function acceptedRelationship(event: SocialEvent, history: SocialEvent[]): Relationship | null {
   if (event.kind !== 'accept' || !event.replyTo) return null;

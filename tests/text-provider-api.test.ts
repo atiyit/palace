@@ -178,13 +178,13 @@ test('user-portrait debug substitutes custom template variables and never replac
   const expectedPrompt = 'PORTRAIT_DEBUG_OVERRIDE: 临时头像 / 蓝色围巾 / 安静 / 像素风格';
   const preview = await post<DebugResult>(debug, '/api/debug', { ...request, action: 'preview' });
   assert.equal(preview.status, 200); assert.equal(preview.value.status, 'preview'); assert.equal(preview.value.persisted, false);
-  assert.equal(preview.value.trace[0].endpoint, 'https://multi-protocol.example.test/v1/images/generations'); assert.equal(preview.value.trace[0].prompt, expectedPrompt);
+  assert.equal(preview.value.trace[0].kind, 'text'); assert.ok(preview.value.trace[0].messages![1].content.includes(expectedPrompt));
   assert.equal(calls.length, beforeCalls); assert.deepEqual(await getState(), before);
   const generated = await sharp({ create: { width: 8, height: 12, channels: 3, background: '#1100DD' } }).png().toBuffer();
-  responses.push({ data: [{ b64_json: generated.toString('base64') }] });
+  responses.push({ prompt: expectedPrompt, negativePrompt: '' }, { data: [{ b64_json: generated.toString('base64') }] });
   const run = await post<DebugResult>(debug, '/api/debug', { ...request, action: 'run' });
   assert.equal(run.status, 200); assert.equal(run.value.status, 'ok'); assert.equal(run.value.persisted, false);
-  assert.equal(run.value.imageDataUrl, `data:image/png;base64,${generated.toString('base64')}`); assert.equal(calls.length, beforeCalls + 1); assert.equal(calls.at(-1)!.body.prompt, expectedPrompt);
+  assert.equal(run.value.imageDataUrl, `data:image/png;base64,${generated.toString('base64')}`); assert.equal(calls.length, beforeCalls + 2); assert.equal(calls.at(-1)!.body.prompt, expectedPrompt);
   assert.deepEqual(await getState(), before);
   const savedAvatar = await env.BUCKET.get('portraits/local-owner/user-profile'); assert.ok(savedAvatar);
   assert.deepEqual(new Uint8Array(await new Response(savedAvatar.body).arrayBuffer()), originalBytes, 'running avatar preview never overwrites stored user pixels');

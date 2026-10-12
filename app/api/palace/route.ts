@@ -9,16 +9,19 @@ import { withProviderSettings } from "@/lib/server/provider-settings";
 import { upgradeAppState } from "@/lib/character-profile";
 import { env } from 'cloudflare:workers';
 import { runPendingCleanup } from '@/lib/server/data-cleanup';
+import { activityRunner } from '@/lib/server/activity-runner';
 
 export const dynamic = "force-dynamic";
 const responseHeaders = { "Cache-Control": "private, no-store, max-age=0", "Vary": "Cookie", "X-Content-Type-Options": "nosniff" };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: responseHeaders });
 const payloadSchema = z.object({
-  action: z.enum(["recruit", "recruit.retry", "recruit.skip", "profile.enrich", "hire", "like", "adopt", "chat", "chat.image.retry", "task.create", "task.step", "task.pause", "task.resume", "task.message", "task.continue", "task.deliver", "memory.delete", "memory.update", "appointment.set", "appointment.remove", "settings", "portrait", "daily.step", "role.review", "member.trash", "member.restore", "member.delete", "data.clear", "cleanup.retry"]),
+  action: z.enum(["recruit", "recruit.retry", "recruit.skip", "profile.enrich", "hire", "like", "adopt", "chat", "chat.image.retry", "task.create", "task.step", "task.pause", "task.resume", "task.finish", "task.message", "task.continue", "task.deliver", "memory.delete", "memory.update", "appointment.set", "appointment.remove", "settings", "portrait", "daily.step", "role.review", "member.trash", "member.restore", "member.delete", "data.clear", "cleanup.retry"]),
   requestId: z.string().min(8).max(100).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   agentId: z.string().max(100).optional(), message: z.string().max(4000).optional(), brief: z.string().max(1800).optional(),
-  title: z.string().max(2500).optional(), rounds: z.number().int().min(1).max(3).optional(), taskId: z.string().max(100).optional(),
+  title: z.string().max(2500).optional(), rounds: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), participantCount: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), taskId: z.string().max(100).optional(),
   memoryId: z.string().max(100).optional(), content: z.string().max(600).optional(), exploration: z.number().finite().optional(), drama: z.number().finite().optional(),
+  memoryLimit: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), groupToolLimit: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  groupImageLimit: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), groupArtifactLimit: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   eventId: z.string().max(100).optional(),
   duties: z.string().max(600).optional(),
   count: z.number().int().min(1).max(10).optional(), batchId: z.string().max(100).optional(), slot: z.number().int().min(1).max(10).optional(),
@@ -57,11 +60,16 @@ export async function POST(request: Request) {
     const parsed = payloadSchema.safeParse(raw);
     if (!parsed.success) throw new PalaceError("操作参数无效，请刷新页面后重试。");
     const payload = parsed.data;
+    if (payload.action === 'data.clear' && activityRunner.active(user.userId)) throw new PalaceError('请先停止后台交流，再清除所有数据。', 409, 'ACTIVITY_RUNNING');
     let detail: { message?: string; taskId?: string } = {};
     let result = await mutateState<AppState>(user.userId, payload.requestId || crypto.randomUUID(), createInitialState, async state => {
         upgradeAppState(state);
-        detail = await withProviderSettings(user.userId, () => performAction(state, payload, user.userId));
+        detail = await withProviderSettings(user.userId, () => {
+          if (payload.action === 'data.clear' && activityRunner.active(user.userId)) throw new PalaceError('请先停止后台交流，再清除所有数据。', 409, 'ACTIVITY_RUNNING');
+          return performAction(state, payload, user.userId);
+        });
     });
+    if (payload.action === 'data.clear') activityRunner.discard(user.userId);
     const replayed = result.replayed;
     if (result.state.pendingCleanup?.length) {
       try {

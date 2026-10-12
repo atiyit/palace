@@ -1,10 +1,11 @@
 import { PalaceError } from "./errors.ts";
+import { IMAGE_PROMPT_PRESETS, MAX_IMAGE_PROMPT_INSTRUCTIONS_CHARS, MAX_IMAGE_POSITIVE_PROMPT_CHARS, MAX_IMAGE_NEGATIVE_PROMPT_CHARS, resolveImagePromptProfiles, type ImagePromptProfiles } from "../image-prompts.ts";
 
 export type ProviderKind = "text" | "image";
 export type ProviderProtocol = 'openai-chat' | 'openai-responses' | 'anthropic' | 'ollama';
 export interface ProviderConnectionOptions { protocol: ProviderProtocol; local: boolean; visionEnabled?: boolean; }
 export type ImagePromptStyle = 'default' | 'novelai' | 'gpt-image' | 'custom';
-export interface ImageProviderOptions { referenceModel: string; promptStyle: ImagePromptStyle; customPrompt: string; }
+export interface ImageProviderOptions { referenceModel: string; promptStyle: ImagePromptStyle; customPrompt: string; promptProfiles?: ImagePromptProfiles; }
 export interface ProviderConfig extends Partial<ImageProviderOptions>, Partial<ProviderConnectionOptions> { baseUrl: string; model: string; apiKey: string; }
 export interface EffectiveProviderConfig extends ProviderConfig { source: "default" | "custom"; }
 export interface PublicProviderConfig extends Partial<ImageProviderOptions>, Partial<ProviderConnectionOptions> { baseUrl: string; model: string; keyConfigured: boolean; keyHint: string; source: "default" | "custom"; }
@@ -104,7 +105,29 @@ export function imageProviderOptions(model: string, input: Partial<ImageProvider
   if (!['default', 'novelai', 'gpt-image', 'custom'].includes(promptStyle)) invalid('图片提示词预设无效。');
   const customPrompt = input.customPrompt ?? '';
   if (typeof customPrompt !== 'string' || customPrompt.length > 6000 || /\x00/.test(customPrompt)) invalid('自定义图片提示词最多6000个字符，不能包含空字符。');
-  return { referenceModel, promptStyle, customPrompt };
+  const promptProfiles = input.promptProfiles === undefined ? resolveImagePromptProfiles(model, referenceModel, { promptStyle, customPrompt }) : validateImagePromptProfiles(input.promptProfiles);
+  return { referenceModel, promptStyle, customPrompt, promptProfiles };
+}
+
+/** 每个抽屉都单独验收，未知字段或半份配置不会悄悄覆盖主人的另一套提示词。 */
+export function validateImagePromptProfiles(input: unknown): ImagePromptProfiles {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) invalid('图片提示词配置必须包含文生图与参考图两套配置。');
+  const profiles = input as Record<string, unknown>;
+  if (Object.keys(profiles).some(key => !['generation', 'reference'].includes(key))) invalid('图片提示词配置包含未知用途。');
+  const result = {} as ImagePromptProfiles;
+  for (const slot of ['generation', 'reference'] as const) {
+    const raw = profiles[slot];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid('文生图与参考图提示词配置均需完整提供。');
+    const profile = raw as Record<string, unknown>;
+    if (Object.keys(profile).some(key => !['preset', 'llmEnabled', 'instructions', 'positivePrompt', 'negativePrompt'].includes(key))) invalid('图片提示词配置包含未知字段。');
+    if (!IMAGE_PROMPT_PRESETS.some(preset => preset.value === profile.preset)) invalid('图片提示词预设无效。');
+    if (typeof profile.llmEnabled !== 'boolean') invalid('提示词优化开关必须为布尔值。');
+    for (const [field, limit] of [['instructions', MAX_IMAGE_PROMPT_INSTRUCTIONS_CHARS], ['positivePrompt', MAX_IMAGE_POSITIVE_PROMPT_CHARS], ['negativePrompt', MAX_IMAGE_NEGATIVE_PROMPT_CHARS]] as const) {
+      if (typeof profile[field] !== 'string' || profile[field].length > limit || /\x00/.test(profile[field])) invalid(`图片提示词 ${field} 最多${limit}个字符，不能包含空字符。`);
+    }
+    result[slot] = { preset: profile.preset, llmEnabled: profile.llmEnabled, instructions: profile.instructions, positivePrompt: profile.positivePrompt, negativePrompt: profile.negativePrompt } as ImagePromptProfiles[typeof slot];
+  }
+  return result;
 }
 
 /** 我先替主人把服务商更新整理好：地址归一化、模型验证、密钥安全策略一并检查。
@@ -120,8 +143,9 @@ export function prepareProviderUpdate(current: EffectiveProviderConfig, input: P
   const apiKey = connection.local
     ? newKey || (current.local === true && !changedOrigin ? current.apiKey : '')
     : newKey || current.apiKey;
-  const imageOptions = current.referenceModel !== undefined || input.referenceModel !== undefined || input.promptStyle !== undefined || input.customPrompt !== undefined
-    ? imageProviderOptions(model, { referenceModel: input.referenceModel ?? current.referenceModel, promptStyle: input.promptStyle ?? current.promptStyle, customPrompt: input.customPrompt ?? current.customPrompt }) : {};
+  const legacyPromptUpdate = input.promptStyle !== undefined || input.customPrompt !== undefined;
+  const imageOptions = current.referenceModel !== undefined || input.referenceModel !== undefined || input.promptStyle !== undefined || input.customPrompt !== undefined || input.promptProfiles !== undefined
+    ? imageProviderOptions(model, { referenceModel: input.referenceModel ?? current.referenceModel, promptStyle: input.promptStyle ?? current.promptStyle, customPrompt: input.customPrompt ?? current.customPrompt, promptProfiles: input.promptProfiles ?? (legacyPromptUpdate ? undefined : current.promptProfiles) }) : {};
   return { baseUrl, model, apiKey, ...connection, ...imageOptions };
 }
 

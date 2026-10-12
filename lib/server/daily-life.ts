@@ -1,4 +1,4 @@
-import { personalMemoryCount } from '../memory-capacity.ts';
+import { hasPersonalMemoryCapacity } from '../memory-capacity.ts';
 import { userProfileContext } from '../user-profile.ts';
 import { z } from 'zod';
 import type { Agent, AppState, DailyEvent, Memory, RoleProposal } from '../types.ts';
@@ -83,7 +83,6 @@ function validateDailyAction(state: AppState, agent: Agent, action: DailyAction,
     if (!action.proposal || action.proposalId) invalid('职位提议需要完整 proposal，不能冒用已有 proposalId。');
     if (!present.has(action.proposal.holderId)) invalid('只能提议当前在庭成员担任职务。');
     if ((state.roleProposals || []).some(item => item.holderId === action.proposal!.holderId && item.title === action.proposal!.title && item.status !== 'rejected')) invalid('同一成员已有同名职位提议，请讨论已有提议，不要重复创建。');
-    if ((state.roleProposals || []).length >= 120) invalid('职位提议已达到本地容量上限，请改为普通交流。');
     return { ...action, targetId: null };
   }
   if (action.proposal) invalid('只有 propose-role 可以携带新的职位提议。');
@@ -99,8 +98,8 @@ function validateDailyAction(state: AppState, agent: Agent, action: DailyAction,
   return action;
 }
 
-function appendMemory(agent: Agent, memory: Omit<Memory, 'id' | 'createdAt'>, id: () => string, now: string) {
-  if (personalMemoryCount(agent) >= 100 || agent.memories.some(item => item.kind === memory.kind && item.content === memory.content)) return;
+function appendMemory(agent: Agent, memory: Omit<Memory, 'id' | 'createdAt'>, id: () => string, now: string, memoryLimit?: number) {
+  if (!hasPersonalMemoryCapacity(agent, memoryLimit) || agent.memories.some(item => item.kind === memory.kind && item.content === memory.content)) return;
   agent.memories.push({ ...memory, id: id(), createdAt: now });
 }
 
@@ -159,13 +158,13 @@ export async function dailyStep(state: AppState, deps: DailyDependencies): Promi
       proposal.supporterIds = accepted.kind === 'endorse-role' ? [...new Set([...proposal.supporterIds, agent.id])] : proposal.supporterIds.filter(id => id !== agent.id);
       event.proposalId = proposal.id;
     }
-    for (const memory of accepted.memories) appendMemory(agent, memory, newId, createdAt);
+    for (const memory of accepted.memories) appendMemory(agent, memory, newId, createdAt, state.settings.memoryLimit);
     if (accepted.revisedStrategy && accepted.revisedStrategy !== agent.strategy) {
       agent.strategy = accepted.revisedStrategy;
-      appendMemory(agent, { kind: 'strategy', content: accepted.revisedStrategy, source: eventId }, newId, createdAt);
+      appendMemory(agent, { kind: 'strategy', content: accepted.revisedStrategy, source: eventId }, newId, createdAt, state.settings.memoryLimit);
     }
   }
-  state.dailyEvents = [...(state.dailyEvents || []), event].slice(-200);
+  state.dailyEvents = [...(state.dailyEvents || []), event];
   state.dailyTurn = turn >= Number.MAX_SAFE_INTEGER - 1 ? (turn + 1) % members.length : turn + 1;
   state.updatedAt = createdAt;
   return { agentId: agent.id, event, ...(!accepted ? { message: `${agent.name}这次日常发言未通过检查；已跳过并保留原有人设与记忆。` } : {}) };
@@ -185,7 +184,7 @@ export function reviewRoleProposal(state: AppState, proposalId: string, decision
   const now = metadata?.now || new Date().toISOString();
   if (decision === 'approve') {
     const holder = activeMembers(state).find(agent => agent.id === proposal.holderId)!;
-    setAppointment(holder, { title: proposal.title, duties: proposal.duties }, { id: metadata?.id || crypto.randomUUID(), now });
+    setAppointment(holder, { title: proposal.title, duties: proposal.duties }, { id: metadata?.id || crypto.randomUUID(), now, memoryLimit: state.settings.memoryLimit });
   }
   proposal.status = decision === 'approve' ? 'approved' : decision === 'private' ? 'private' : 'rejected';
   proposal.reviewedAt = now;

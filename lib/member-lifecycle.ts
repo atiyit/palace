@@ -13,16 +13,18 @@ function findMember(state: AppState, agentId: string): Agent {
 
 /** 请把排班表交给我整理吧——要确保下一位未发言者的位置不变，移除靠前的发言者时绝不能跳过任何人的回合呢。 */
 function repairTask(task: Task, available: Set<string>, now: string): void {
+  if (task.groupTurn && !available.has(task.groupTurn.agentId)) delete task.groupTurn;
+  if (task.deliveryProgress && !available.has(task.deliveryProgress.agentId)) delete task.deliveryProgress;
   if (task.status === 'completed') return;
   const played = task.order.slice(0, task.cursor).filter(id => available.has(id));
   task.participants = task.participants.filter(id => available.has(id));
   task.order = task.order.filter(id => available.has(id));
   task.cursor = played.length;
-  if (task.participants.length < 2) {
+  if (!task.participants.length) {
     task.status = 'paused';
-    task.lastError = '参与成员不足两位，任务已暂停；其余记录和成果已保留。';
+    task.lastError = '当前没有在庭参与成员，任务已暂停；其余记录和成果已保留。';
   } else if (task.cursor >= task.order.length) {
-    if (task.round >= task.rounds) { task.status = 'completed'; task.completedAt = now; }
+    if (task.rounds > 0 && task.round >= task.rounds) { task.status = 'completed'; task.completedAt = now; }
     else { task.round++; task.cursor = 0; task.order = [...task.participants]; }
   }
 }
@@ -33,16 +35,15 @@ export function archiveMember(state: AppState, agentId: string, now = new Date()
   agent.archivedAt = now;
   const available = new Set(activeMembers(state).map(item => item.id));
   state.tasks.forEach(task => repairTask(task, available, now));
-  if (agent.hired) state.membershipEvents = [...(state.membershipEvents || []), { id: crypto.randomUUID(), agentId, name: agent.name, kind: 'left' as const, createdAt: now }].slice(-100);
+  if (agent.hired) state.membershipEvents = [...(state.membershipEvents || []), { id: crypto.randomUUID(), agentId, name: agent.name, kind: 'left' as const, createdAt: now }];
   state.updatedAt = now;
 }
 
 export function restoreMember(state: AppState, agentId: string, now = new Date().toISOString()): void {
   const agent = findMember(state, agentId);
   if (!agent.archivedAt) return;
-  if (agent.hired && activeMembers(state).length >= 8) throw new PalaceError('庭院已有 8 位在庭成员，请先让一位离开，再恢复她。', 409, 'MEMBER_CAPACITY');
   delete agent.archivedAt;
-  if (agent.hired) state.membershipEvents = [...(state.membershipEvents || []), { id: crypto.randomUUID(), agentId, name: agent.name, kind: 'returned' as const, createdAt: now }].slice(-100);
+  if (agent.hired) state.membershipEvents = [...(state.membershipEvents || []), { id: crypto.randomUUID(), agentId, name: agent.name, kind: 'returned' as const, createdAt: now }];
   state.updatedAt = now;
 }
 

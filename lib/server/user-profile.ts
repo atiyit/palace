@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import type { AppState, UserProfile } from '../types.ts';
 import { USER_PROFILE_LIMITS, MAX_USER_IMAGE_BYTES, type UserProfileDraft } from '../user-profile.ts';
 import { combineSystemPrompt, getPromptText } from '../prompts.ts';
-import { renderImagePrompt, type ImagePromptStyle } from '../image-prompts.ts';
+import { renderImagePrompt, getImagePromptProfile, renderImagePromptTemplate, type ImagePromptProfileOptions } from '../image-prompts.ts';
 import { PalaceError } from './errors.ts';
 
 const field = (maximum: number) => z.string().trim().max(maximum).refine(value => !value.includes('\0'));
@@ -56,13 +56,20 @@ export async function createUserProfileDraft(state: AppState, brief: string, gen
   return parsed.data;
 }
 
-export function userAvatarPrompt(state: AppState, request = '', options: { promptStyle?: ImagePromptStyle; customPrompt?: string } = {}): string {
+export function userAvatarImageContext(state: AppState, request = '') {
   if (typeof request !== 'string' || request.length > USER_PROFILE_LIMITS.avatarPrompt) throw new PalaceError('头像描述最多2000字。');
   const profile = state.userProfile;
   if (!request.trim() && !(profile?.description || profile?.name)) throw new PalaceError('请先填写自我介绍，或描述想要的头像。');
   const variables = { name: profile?.name || '用户', description: profile?.description || '', preferences: profile?.preferences || '', request: request.trim() };
   const base = getPromptText('user.portrait.template', state.promptOverrides, variables);
-  return renderImagePrompt(base, options.promptStyle, options.customPrompt, { ...variables, appearance: variables.description, userMessage: variables.request });
+  return { ...variables, appearance: variables.description, userMessage: variables.request, prompt: base };
+}
+
+export function userAvatarPrompt(state: AppState, request = '', options: ImagePromptProfileOptions & { model?: string; referenceModel?: string } = {}): string {
+  const values = userAvatarImageContext(state, request);
+  return options.model
+    ? renderImagePromptTemplate(values.prompt, getImagePromptProfile(options.model, options.referenceModel || options.model, 'generation', options).positivePrompt, values)
+    : renderImagePrompt(values.prompt, options.promptStyle, options.customPrompt, values);
 }
 
 /** 我会亲自解码像素来验明正身，不轻信声称的 MIME 类型；元数据也一并剥离，像素尺寸和输出大小都严格把关呀。 */

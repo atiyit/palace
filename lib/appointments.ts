@@ -1,17 +1,17 @@
-import { personalMemoryCount } from './memory-capacity.ts';
+import { hasPersonalMemoryCapacity } from './memory-capacity.ts';
 import type { Agent } from './types.ts';
 import { PalaceError } from './server/errors.ts';
 
 export interface AppointmentInput { title: string; duties?: string; }
-export interface AppointmentMetadata { id: string; now: string; }
+export interface AppointmentMetadata { id: string; now: string; memoryLimit?: number; }
 
 function requireMember(agent: Agent): void {
   if (!agent.hired) throw new PalaceError('请先邀请她加入庭院，再任命或撤销职务。', 400, 'APPOINTMENT_REQUIRES_MEMBER');
 }
 
 function appointmentMemory(agent: Agent, content: string, metadata: AppointmentMetadata): void {
-  // 请容我替主人看好这本日志簿——普通记忆条目达到 100 条上限时便不再追加；真正的任命以 appointment 字段为准，这边只是留档呢。
-  if (personalMemoryCount(agent) >= 100) return;
+  // 请容我替主人按您选择的容量保管日志；默认不限，真正的任命仍以 appointment 字段为准呢。
+  if (!hasPersonalMemoryCapacity(agent, metadata.memoryLimit)) return;
   agent.memories.push({
     id: metadata.id, kind: 'experience', content,
     source: `user-appointment:${metadata.id}`, createdAt: metadata.now,

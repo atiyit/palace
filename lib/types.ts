@@ -51,6 +51,8 @@ export interface Task {
   createdAt: string; completedAt?: string; lastError?: string;
   artifacts?: TaskArtifact[]; toolRuns?: ToolRun[]; deliveryTurn?: number;
   mode?: 'group';
+  groupTurn?: { agentId: string; eventId: string; toolCalls: number; imageCalls: number; corrected: boolean; correction: string; startedAt: string; };
+  deliveryProgress?: { agentId: string; eventId: string; toolCalls: number; correction: string; startedAt: string; };
 }
 export interface TaskArtifact { id: string; name: string; mimeType: string; size: number; url: string; createdAt: string; agentId: string; kind?: 'file' | 'image'; contributorIds?: string[]; derivedFromIds?: string[]; eventId?: string; }
 export interface ToolRun { id: string; agentId: string; tool: 'web.search' | 'web.read' | 'code.run' | 'file.write' | 'image.generate'; inputSummary: string; status: 'ok' | 'error'; output?: string; error?: string; createdAt: string; artifactIds?: string[]; }
@@ -58,7 +60,10 @@ export interface DailyEvent { id: string; agentId: string; targetId?: string; ki
 export interface RoleProposal { id: string; proposerId: string; holderId: string; title: string; duties: string; reason: string; createdAt: string; supporterIds: string[]; status: 'pending' | 'approved' | 'private' | 'rejected'; reviewedAt?: string; reviewNote?: string; }
 export interface MembershipEvent { id: string; agentId: string; name: string; kind: 'left' | 'returned'; createdAt: string; }
 export interface CleanupJob { id: string; kind: 'member' | 'all'; agentId?: string; imageIds: string[]; createdAt: string; }
-export interface Settings { exploration: number; drama: number; }
+export interface Settings {
+  exploration: number; drama: number;
+  memoryLimit?: number; groupToolLimit?: number; groupImageLimit?: number; groupArtifactLimit?: number;
+}
 export interface ServerConfig { textReady: boolean; imageReady: boolean; model: string; imageModel: string; visionEnabled?: boolean; }
 export interface RecruitmentIssue { path: string; message: string; }
 export interface RecruitmentSlot {

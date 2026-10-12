@@ -13,7 +13,7 @@ import { z } from "zod";
 import { createInitialState } from '../seeds.ts';
 import { dailyContext, dailyActionSchema } from './daily-life.ts';
 import { taskGroupContext, groupCommandSchema } from './task-group.ts';
-import { renderImagePrompt, type ImagePromptStyle } from '../image-prompts.ts';
+import { renderImagePrompt, getImagePromptProfile, renderImagePromptTemplate, type ImagePromptProfileOptions } from '../image-prompts.ts';
 import { userProfileContext } from '../user-profile.ts';
 import { userProfileDraftSchema } from './user-profile.ts';
 import type { ActionOptions, ActionPayload } from "./engine";
@@ -27,9 +27,9 @@ export interface DebugRequest { stage: DebugStage["id"]; promptId?: string; agen
 export interface DebugDependencies {
   performAction: (state: AppState, payload: ActionPayload, userId: string, options?: ActionOptions) => Promise<{ message?: string; taskId?: string }>;
   completeJson: (system: string, input: unknown, maxTokens: number, timeoutMs: number) => Promise<{ value: unknown }>;
-  generatePortrait: (prompt: string, reference?: PortraitReference) => Promise<{ bytes: Uint8Array; contentType: string }>;
+  generatePortrait: (prompt: string, reference?: PortraitReference, variables?: Record<string, unknown>) => Promise<{ bytes: Uint8Array; contentType: string }>;
   loadReference: (agent: Agent, userId: string) => Promise<PortraitReference>;
-  getEffectiveProvider: (kind: "text" | "image") => { apiKey: string; promptStyle?: ImagePromptStyle; customPrompt?: string };
+  getEffectiveProvider: (kind: "text" | "image") => ImagePromptProfileOptions & { apiKey: string; model?: string; referenceModel?: string };
   imageReady: () => boolean;
 }
 
@@ -62,11 +62,11 @@ export function debugCatalog(state: AppState, agentId?: string, imageGenerationA
     { id: "chat-image", title: "私聊图片模板", kind: "image", defaultInput: { ...imageIdentity, request: "Close-up of the character's hands, showing the specified species anatomy and distinctive details.", userMessage: "给我看看你的手，来一张手部特写。" } },
     { id: "chat", title: "完整私聊沙盒（含审校）", kind: "text", defaultInput: { message: "请用你自己的方式，帮我规划今天最重要的三件事。" } },
     { id: "task", title: "完整群聊回合沙盒（工具与审校）", kind: "text", defaultInput: { title: "为独立咖啡馆制定一个小预算开业方案。" } },
-    { id: 'group', title: '群聊发言与工具规划（仅生成命令）', kind: 'text', defaultInput: { ...taskGroupContext(state, { id: 'debug-group', mode: 'group', title: '一起写一份三日计划，可提供文件、图片或文字。', status: 'paused', rounds: 1, round: 1, participants: state.agents.filter(item => item.hired && !item.archivedAt).map(item => item.id), order: [agent.id], cursor: 0, createdAt: state.updatedAt }, agent, 'debug-response'), tools: ['web.search', 'web.read', 'code.run', 'file.write', ...(imageGenerationAvailable ? ['image.generate'] : [])], fileContents: [], previousTools: [], maxToolCalls: 4, remainingToolCalls: 4, mustFinish: false, imageAlreadyAttempted: false, imageGenerationAvailable } },
+    { id: 'group', title: '群聊发言与工具规划（仅生成命令）', kind: 'text', defaultInput: { ...taskGroupContext(state, { id: 'debug-group', mode: 'group', title: '一起写一份三日计划，可提供文件、图片或文字。', status: 'paused', rounds: 1, round: 1, participants: state.agents.filter(item => item.hired && !item.archivedAt).map(item => item.id), order: [agent.id], cursor: 0, createdAt: state.updatedAt }, agent, 'debug-response'), tools: ['web.search', 'web.read', 'code.run', 'file.write', ...(imageGenerationAvailable ? ['image.generate'] : [])], fileContents: [], previousTools: [], maxToolCalls: state.settings.groupToolLimit || 0, remainingToolCalls: state.settings.groupToolLimit || null, maxImageCalls: state.settings.groupImageLimit || 0, remainingImageCalls: state.settings.groupImageLimit || null, maxArtifactVersions: state.settings.groupArtifactLimit || 0, mustFinish: false, imageAlreadyAttempted: false, imageGenerationAvailable } },
     { id: 'group-review', title: '群聊发言与生图审校', kind: 'text', defaultInput: { context: { immutableCore: agentCore(agent), messages: [], members: [] }, candidate: { type: 'finish', kind: 'propose', content: '我先提出一个安排，大家可以一起完善。', memories: [] }, fileContents: [], artifacts: [], actualToolResults: [] } },
     { id:'daily',title:'日常相处（单次生成）',kind:'text',defaultInput:dailyContext(state,agent,'debug-daily') },
     { id:'daily-review',title:'日常互动审校',kind:'text',defaultInput:{immutableCore:agentCore(agent),context:dailyContext(state,agent,'debug-daily'),candidate:{kind:'chat',content:'今天想和大家聊聊最近的灵感。',memories:[]}} },
-    { id:'delivery',title:'事务工具规划（仅生成命令）',kind:'text',defaultInput:{immutableCore:agentCore(agent),task:{title:'制作包含三日计划的CSV文件'},members:[],contributions:[],files:[],previousTools:[],step:1,maxToolCalls:6,tools:['web.search','web.read','code.run','file.write']} },
+    { id:'delivery',title:'事务工具规划（仅生成命令）',kind:'text',defaultInput:{immutableCore:agentCore(agent),task:{title:'制作包含三日计划的CSV文件'},members:[],contributions:[],files:[],previousTools:[],step:1,maxToolCalls:state.settings.groupToolLimit||0,maxArtifactVersions:state.settings.groupArtifactLimit||0,tools:['web.search','web.read','code.run','file.write']} },
     { id:'delivery-review',title:'事务交付说明审校',kind:'text',defaultInput:{immutableCore:agentCore(agent),task:{title:'制作三日计划'},candidate:'尚未生成文件。',artifacts:[],actualToolResults:[]} },
   ];
   for (const stage of stages) if (stage.kind === "text") stage.defaultInput = { userProfile: userProfileContext(state), ...(stage.defaultInput as Record<string, unknown>), validationPolicy: contentValidationPolicy(state) };
@@ -159,8 +159,13 @@ export async function runDebugCore(state: AppState, request: DebugRequest, mode:
     if (compiled.stage === "portrait" || compiled.stage === "chat-image" || compiled.stage === 'user-portrait') {
       const reference = compiled.stage === "chat-image" ? await dependencies.loadReference(agent, userId) : undefined;
       const config = getEffectiveProvider('image');
-      const prompt = renderImagePrompt(compiled.prompt!, config.promptStyle, config.customPrompt, { name: agent.name, ...compiled.input });
-      const generated = await generatePortrait(prompt, reference);
+      const variables = compiled.stage === 'user-portrait'
+        ? { ...compiled.input, appearance: compiled.input.description, userMessage: compiled.input.request }
+        : { name: agent.name, ...compiled.input };
+      const prompt = config.model
+        ? renderImagePromptTemplate(compiled.prompt!, getImagePromptProfile(config.model, config.referenceModel || config.model, reference ? 'reference' : 'generation', config).positivePrompt, variables)
+        : renderImagePrompt(compiled.prompt!, config.promptStyle, config.customPrompt, variables);
+      const generated = await generatePortrait(prompt, reference, { ...variables, prompt: compiled.prompt });
       imageDataUrl = dataUrl(generated.bytes, generated.contentType);
       return { contentType: generated.contentType, bytes: generated.bytes.length };
     }
@@ -220,8 +225,8 @@ export async function runDebugCore(state: AppState, request: DebugRequest, mode:
   if (!error && (value?.reply?.checked === false || value?.events?.some(event => !event.checked))) error = value.message || "本轮内容未通过格式或人设审查。";
   if (!error && compiled.stage === 'task' && value?.message) error = value.message;
   if (!error && value?.reply?.image?.status === "failed") error = value.reply.image.error || value.message || "本次聊天图片生成失败，文字回复已保留。";
-  const pipeline = compiled.stage === "chat" || compiled.stage === "task";
-  const output = pipeline && preview ? { note: "完整流程预览仅展示首个真实请求；审校、重试及聊天生图提示词只在运行并实际触发对应步骤时使用。要直接预览图片提示词，请选择私聊图片模板阶段。" } : outcome.value;
+  const pipeline = compiled.stage === "chat" || compiled.stage === "task" || compiled.stage === "portrait" || compiled.stage === "chat-image" || compiled.stage === "user-portrait";
+  const output = pipeline && preview ? { note: "预览仅展示首个真实请求，不调用模型。图片启用 LLM 优化且文本渠道已配置时，首先展示提示词编译请求；运行后才会得到最终图片提示词及其请求记录。审校与重试也仅在实际运行触发时显示。" } : outcome.value;
   const result: DebugResult = { mode, status: preview ? "preview" : error ? "error" : "ok", trace: outcome.trace, output, imageDataUrl, error, elapsedMs: Date.now() - started, persisted: false };
   return redactDebugValue(result, [getEffectiveProvider("text").apiKey, getEffectiveProvider("image").apiKey]);
 }

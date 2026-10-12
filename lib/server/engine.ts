@@ -1,4 +1,4 @@
-import { personalMemoryCount } from '../memory-capacity.ts';
+import { hasPersonalMemoryCapacity } from '../memory-capacity.ts';
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import type { Agent, AppState, ChatMessage, Memory, SocialEvent, Task, TaskArtifact } from "@/lib/types";
@@ -18,7 +18,7 @@ import { characterTimeFields } from "@/lib/character-time";
 import { attachChatImage, retryChatImage, chatImageStorageKey, type ChatImageDependencies, type ChatImageSink } from "./chat-image";
 import { loadPortraitReference } from "./portrait-reference";
 import { getEffectiveProvider } from './provider-settings';
-import { renderImagePrompt } from '../image-prompts';
+import { getImagePromptProfile, renderImagePromptTemplate, type ImagePromptSlot } from '../image-prompts';
 import { dailyStep, dailyContext, reviewRoleProposal } from './daily-life';
 import { archiveMember, restoreMember, permanentlyDeleteMember, clearAllData, membershipContext } from '@/lib/member-lifecycle';
 import { deliverTask } from './task-delivery';
@@ -53,9 +53,10 @@ function core(agent: Agent) {
   return { name: agent.name, ...characterTimeFields(agent), title: agent.title, bio: agent.bio, appearance: agent.appearance, traits: agent.traits, values: agent.values, boundaries: agent.boundaries, voice: agent.voice, approach: agent.approach, species: agent.species, profile: agent.profile, skills: agent.skills, userAdoptedContributionsByPrimarySpecialty: agent.evidence };
 }
 
-function configuredImagePrompt(basePrompt: string, variables: Record<string, unknown> = {}): string {
+function configuredImagePrompt(basePrompt: string, variables: Record<string, unknown> = {}, slot: ImagePromptSlot = 'generation'): string {
   const config = getEffectiveProvider('image');
-  return renderImagePrompt(basePrompt, config.promptStyle, config.customPrompt, variables);
+  const profile = getImagePromptProfile(config.model, referenceImageModelName(), slot, config);
+  return renderImagePromptTemplate(basePrompt, profile.positivePrompt, variables);
 }
 
 function imageIdentity(agent: Agent): Record<string, unknown> {
@@ -63,15 +64,15 @@ function imageIdentity(agent: Agent): Record<string, unknown> {
     species: `${agent.species.name} (${agent.species.kind})`, form: agent.species.form, appearance: agent.appearance, traits: agent.traits.join(', ') };
 }
 
-function saveMemory(agent: Agent, memory: Omit<Memory, "id" | "createdAt">): void {
+function saveMemory(agent: Agent, memory: Omit<Memory, "id" | "createdAt">, memoryLimit?: number): void {
   if (agent.memories.some(item => item.content === memory.content && item.kind === memory.kind)) return;
-  // 普通记忆的账本写满 100 条后就不再追加了；已有条目可以在界面管理，不会被我静默裁剪掉哦。
-  if (personalMemoryCount(agent) >= 100) return;
+  // 我按主人的设置保存普通记忆；默认不限，有上限时只停止追加，不会静默裁剪旧条目哦。
+  if (!hasPersonalMemoryCapacity(agent, memoryLimit)) return;
   agent.memories.push({ ...memory, id: id(), createdAt: now() });
 }
 
 function recordFeedback(state: AppState, agent: Agent, kind: "like" | "hire"): void {
-  saveMemory(agent, { kind: "preference", content: getPromptText(kind === "hire" ? "feedback.hire" : agent.liked ? "feedback.like" : "feedback.unlike", state.promptOverrides), source: `用户${kind === "hire" ? "邀请" : "偏好操作"} · ${now()}` });
+  saveMemory(agent, { kind: "preference", content: getPromptText(kind === "hire" ? "feedback.hire" : agent.liked ? "feedback.like" : "feedback.unlike", state.promptOverrides), source: `用户${kind === "hire" ? "邀请" : "偏好操作"} · ${now()}` }, state.settings.memoryLimit);
 }
 
 /** 主人，请把最核心的行动审校循环交给我吧——流程是：生成 → 结构校验 → 图片权限检查 → 来源验证 → 人设审校。
@@ -125,19 +126,20 @@ async function checkedAction(state: AppState, agent: Agent, input: Record<string
 /** 我来替主人把通过审校的行动中的记忆和修订策略归档到角色的持久状态里。
  * 重复内容（相同 kind + content）不会重复存储，账本上不写两遍一样的。
  * 策略只在实际发生变化时才记一笔 strategy 类型的记忆呢。 */
-function commitLearning(agent: Agent, action: GeneratedAction, sourceId: string): void {
-  for (const memory of action.memories) saveMemory(agent, memory);
+function commitLearning(agent: Agent, action: GeneratedAction, sourceId: string, memoryLimit?: number): void {
+  for (const memory of action.memories) saveMemory(agent, memory, memoryLimit);
   if (action.revisedStrategy && action.revisedStrategy !== agent.strategy) {
     agent.strategy = action.revisedStrategy;
-    saveMemory(agent, { kind: "strategy", content: action.revisedStrategy, source: sourceId });
+    saveMemory(agent, { kind: "strategy", content: action.revisedStrategy, source: sourceId }, memoryLimit);
   }
 }
 
 function chatImageDependencies(state: AppState, userId: string, options: ActionOptions): ChatImageDependencies {
   return {
-    generate: async (prompt, reference) => {
+    generate: async (prompt, reference, context) => {
       if (!options.chatImageSink && !env.BUCKET) throw new PalaceError("图片存储尚未配置。", 503, "IMAGE_NOT_CONFIGURED");
-      return generatePortrait(prompt, reference);
+      const variables = { ...imageIdentity(context.agent), request: context.request, userMessage: context.userMessage };
+      return generatePortrait(prompt, reference, { ...variables, prompt: getPromptText('chat.image.template', state.promptOverrides, variables) });
     },
     store: options.chatImageSink || (async (generated, messageId) => {
       await env.BUCKET!.put(chatImageStorageKey(userId, messageId), generated.bytes, { httpMetadata: { contentType: generated.contentType } });
@@ -147,7 +149,7 @@ function chatImageDependencies(state: AppState, userId: string, options: ActionO
     reference: agent => loadPortraitReference(agent, userId, env.BUCKET),
     prompt: (agent, request, userMessage) => {
       const variables = { ...imageIdentity(agent), request, userMessage };
-      return configuredImagePrompt(getPromptText('chat.image.template', state.promptOverrides, variables), variables);
+      return configuredImagePrompt(getPromptText('chat.image.template', state.promptOverrides, variables), variables, 'reference');
     },
   };
 }
@@ -169,12 +171,11 @@ async function chat(state: AppState, agent: Agent, message: string, userId: stri
   if (result.action) {
     const response: ChatMessage = { id: responseId, role: "assistant", content: result.action.content, createdAt: now(), checked: true };
     agent.chats.push(response);
-    commitLearning(agent, result.action, responseId);
+    commitLearning(agent, result.action, responseId, state.settings.memoryLimit);
     if (result.action.imageRequest) imageFailed = await attachChatImage(agent, response, result.action.imageRequest, message, chatImageDependencies(state, userId, options)) === "failed";
   } else {
     agent.chats.push({ id: responseId, role: "assistant", content: "【系统提示】这次回答在两次生成后仍未通过内容格式或人物一致性检查，已暂缓发布。可以换一种问法继续交流。", createdAt: now(), checked: false });
   }
-  agent.chats = agent.chats.slice(-40);
   return result.action ? imageFailed ? "文字回复已保存，图片生成失败；可以单独重试这张图片。" : attachment && !vision.context.enabled ? '图片已保存。当前未启用图片识别，角色只能读取文字；可在 API 设置中为支持视觉的模型开启。' : undefined : "这次回答未通过格式或人设检查，未发布角色台词。";
 }
 
@@ -208,14 +209,18 @@ function groupDependencies(state: AppState, task: Task, userId: string, options:
     },
     ...(imageReady() ? {
       image: async (prompt: string, referenceAgentId?: string) => {
-        if (!referenceAgentId) return generatePortrait(configuredImagePrompt(prompt, { request: prompt, userMessage: task.title }));
+        if (!referenceAgentId) {
+          const variables = { request: prompt, userMessage: task.title };
+          return generatePortrait(configuredImagePrompt(prompt, variables), undefined, { ...variables, prompt });
+        }
         const person = agentById(state, referenceAgentId, true);
         if (!task.participants.includes(person.id)) throw new PalaceError('只能引用本群参与成员的头像。');
         const reference = await loadPortraitReference(person, userId, env.BUCKET);
         const variables = { ...imageIdentity(person), request: prompt,
           userMessage: state.events.filter(event => event.taskId === task.id && event.actorType === 'user').at(-1)?.content || task.title,
         };
-        return generatePortrait(configuredImagePrompt(getPromptText('chat.image.template', state.promptOverrides, variables), variables), reference);
+        const basePrompt = getPromptText('chat.image.template', state.promptOverrides, variables);
+        return generatePortrait(configuredImagePrompt(basePrompt, variables, 'reference'), reference, { ...variables, prompt: basePrompt });
       },
       storeImage: async (image: GroupImage, metadata: TaskArtifact) => {
         if (sandboxFiles) return sandboxFiles(image, metadata);
@@ -228,18 +233,21 @@ function groupDependencies(state: AppState, task: Task, userId: string, options:
 
 async function taskStep(state: AppState, task: Task, userId: string, options: ActionOptions): Promise<string | undefined> {
   if (task.status !== "running") throw new PalaceError(task.status === "completed" ? "这个任务已经完成。" : "任务已暂停，请先继续。", 409);
+  if (task.deliveryProgress) throw new PalaceError('旧版交付回合仍在进行，请先继续交付或结束该事务。', 409, 'DELIVERY_IN_PROGRESS');
   requireProvider();
   const agent = agentById(state, task.order[task.cursor], true);
+  delete task.lastError;
   if (task.mode === 'group') {
     const message = await runGroupTurn(state, task, agent, groupDependencies(state, task, userId, options));
-    advanceTask(task);
+    if (!task.groupTurn) advanceTask(task);
+    if (message) { task.lastError = message; if (task.status === 'running') task.status = 'paused'; }
     return message;
   }
   const history = state.events.filter(event => event.taskId === task.id);
   const eventId = id();
   const input = {
     mode: "task-turn", ...ownContext(agent, task.title),
-    task: { id: task.id, title: task.title, round: task.round, totalRounds: task.rounds, finalRound: task.round === task.rounds },
+    task: { id: task.id, title: task.title, round: task.round, totalRounds: task.rounds, finalRound: task.rounds > 0 && task.round === task.rounds },
     participants: task.participants.map(participantId => { const person = agentById(state, participantId); return { id: person.id, name: person.name, title: person.title, species: person.species, skills: person.skills, appointment: appointmentContext(person) }; }),
     ...taskVisibility(agent, task, history),
     currentSourceId: eventId, drama: state.settings.drama, imageGenerationAvailable: false,
@@ -257,7 +265,7 @@ async function taskStep(state: AppState, task: Task, userId: string, options: Ac
     const relation = acceptedRelationship(event, state.events);
     if (relation && !state.relationships.some(item => item.taskId === relation.taskId && item.from === relation.from && item.to === relation.to)) state.relationships.push(relation);
     state.events.push(event);
-    commitLearning(agent, action, eventId);
+    commitLearning(agent, action, eventId, state.settings.memoryLimit);
   }
   advanceTask(task);
   return message;
@@ -267,7 +275,7 @@ function advanceTask(task: Task): void {
   delete task.lastError;
   task.cursor++;
   if (task.cursor >= task.order.length) {
-    if (task.round >= task.rounds) { task.status = "completed"; task.completedAt = now(); }
+    if (task.rounds > 0 && task.round >= task.rounds) { task.status = "completed"; task.completedAt = now(); }
     else { task.round++; task.cursor = 0; task.order = shuffle(task.participants); }
   }
 }
@@ -333,7 +341,7 @@ async function enrichProfile(state: AppState, agent: Agent): Promise<void> {
   throw new PalaceError("档案深描未通过完整性或人物一致性审查，原档案保持不变。", 502, "PROFILE_ENRICH_FAILED");
 }
 
-export interface ActionPayload { action: string; requestId?: string; agentId?: string; eventId?: string; message?: string; messageId?: string; imageId?: string; brief?: string; count?: number; batchId?: string; slot?: number; title?: string; duties?: string; rounds?: number; taskId?: string; memoryId?: string; content?: string; exploration?: number; drama?: number; proposalId?: string; decision?: 'approve'|'private'|'reject'; confirmation?: string; }
+export interface ActionPayload { action: string; requestId?: string; agentId?: string; eventId?: string; message?: string; messageId?: string; imageId?: string; brief?: string; count?: number; batchId?: string; slot?: number; title?: string; duties?: string; rounds?: number; participantCount?: number; taskId?: string; memoryId?: string; content?: string; exploration?: number; drama?: number; memoryLimit?: number; groupToolLimit?: number; groupImageLimit?: number; groupArtifactLimit?: number; proposalId?: string; decision?: 'approve'|'private'|'reject'; confirmation?: string; }
 export interface ActionOptions {
   chatImageSink?: ChatImageSink;
   taskArtifactSink?: (image: GroupImage, metadata: TaskArtifact) => Promise<void>;
@@ -349,6 +357,11 @@ export async function performAction(state: AppState, payload: ActionPayload, use
     const parsed = short(max).safeParse(value);
     if (!parsed.success) throw new PalaceError(`${label}不能为空，且最多${max}个字符。`);
     return parsed.data;
+  };
+  const count = (value: unknown, label: string, fallback = 0): number => {
+    if (value === undefined) return fallback;
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new PalaceError(`${label}需为非负整数，0表示不限。`, 400);
+    return value;
   };
   switch (payload.action) {
     case 'daily.step': {
@@ -386,7 +399,6 @@ export async function performAction(state: AppState, payload: ActionPayload, use
     case 'recruit.skip': message = skipRecruitmentSlot(state, required(payload.batchId, '招聘批次', 100), payload.slot!); break;
     case "hire": {
       const agent = agentById(state, required(payload.agentId, "角色ID", 100));
-      if (!agent.hired && state.agents.filter(person => person.hired && !person.archivedAt).length >= 8) throw new PalaceError("最多同时容纳8位在庭角色，任务每次由最多5人参加。");
       if (!agent.hired) { applyFeedback(agent, "hire"); recordFeedback(state, agent, "hire"); }
       break;
     }
@@ -399,7 +411,7 @@ export async function performAction(state: AppState, payload: ActionPayload, use
         event.adoptedAt = now(); agent.weight += 3;
         const strongest = [...skillNames].sort((a, b) => agent.skills[b] - agent.skills[a])[0];
         agent.evidence[strongest] = (agent.evidence[strongest] || 0) + 1;
-        saveMemory(agent, { kind: "experience", content: getPromptText("feedback.adopt", state.promptOverrides, { content: event.content.slice(0, 400) }), source: event.id });
+        saveMemory(agent, { kind: "experience", content: getPromptText("feedback.adopt", state.promptOverrides, { content: event.content.slice(0, 400) }), source: event.id }, state.settings.memoryLimit);
       }
       break;
     }
@@ -413,24 +425,30 @@ export async function performAction(state: AppState, payload: ActionPayload, use
     case "task.create": {
       requireProvider();
       if (state.tasks.some(task => task.status === "running")) throw new PalaceError("请先完成或暂停当前任务。", 409);
-      const participants = shuffle(state.agents.filter(agent => agent.hired && !agent.archivedAt).map(agent => agent.id)).slice(0, 5);
-      if (participants.length < 2) throw new PalaceError("请先邀请至少两位角色，再开始协作任务。");
-      const rounds = typeof payload.rounds === "number" && Number.isInteger(payload.rounds) ? Math.max(1, Math.min(3, payload.rounds)) : 2;
+      const available = shuffle(state.agents.filter(agent => agent.hired && !agent.archivedAt).map(agent => agent.id));
+      const participantCount = count(payload.participantCount, '参与人数');
+      const participants = participantCount === 0 ? available : available.slice(0, participantCount);
+      if (!participants.length) throw new PalaceError("请先邀请至少一位角色，再开始共议任务。");
+      const rounds = count(payload.rounds, '共议轮数');
       const task: Task = { id: id(), mode: 'group', title: required(payload.title, "任务", 2500), status: "running", rounds, round: 1, participants, order: shuffle(participants), cursor: 0, createdAt: now() };
       state.tasks.push(task); appendGroupUserMessage(state, task, task.title); taskId = task.id; break;
     }
     case 'task.message': case 'task.continue': {
       const task = state.tasks.find(item => item.id === payload.taskId);
       if (!task) throw new PalaceError('找不到这个事务。', 404);
+      if (task.deliveryProgress) throw new PalaceError('旧版交付回合尚未完成，请先继续交付或结束该事务，再继续共议。', 409, 'DELIVERY_IN_PROGRESS');
       const content = payload.action === 'task.message' ? required(payload.message, '群聊消息', 4000) : undefined;
       if (state.tasks.some(item => item.id !== task.id && item.status === 'running')) throw new PalaceError('请先暂停正在运行的另一项事务。', 409);
       const participants = task.participants.filter(id => state.agents.some(agent => agent.id === id && agent.hired && !agent.archivedAt));
-      if (participants.length < 2) throw new PalaceError('这个事务剩余成员不足两位，请新建事务。', 409);
+      if (!participants.length) throw new PalaceError('这个事务当前没有在庭成员，请恢复参与成员或新建事务。', 409);
       task.mode = 'group';
       task.participants = participants;
       if (task.status === 'completed') {
-        const rounds = typeof payload.rounds === 'number' && Number.isInteger(payload.rounds) ? Math.max(1, Math.min(3, payload.rounds)) : 1;
-        task.round = task.rounds + 1; task.rounds += rounds; task.order = shuffle(participants); task.cursor = 0;
+        const rounds = count(payload.rounds, '续聊轮数');
+        const completedRound = task.round;
+        if (completedRound >= Number.MAX_SAFE_INTEGER || (rounds > 0 && completedRound > Number.MAX_SAFE_INTEGER - rounds)) throw new PalaceError('任务轮次已超出可精确记录的整数范围，请新建事务。', 400);
+        task.round = completedRound + 1; task.rounds = rounds === 0 ? 0 : completedRound + rounds; task.order = shuffle(participants); task.cursor = 0;
+        delete task.groupTurn;
         delete task.completedAt;
       }
       if (content) appendGroupUserMessage(state, task, content);
@@ -438,14 +456,24 @@ export async function performAction(state: AppState, payload: ActionPayload, use
       message = content ? '消息已发到群中，成员将接着交流。' : '已准备继续交流。';
       break;
     }
-    case "task.step": case "task.pause": case "task.resume": {
+    case "task.step": case "task.pause": case "task.resume": case 'task.finish': {
       const task = state.tasks.find(item => item.id === payload.taskId);
       if (!task) throw new PalaceError("找不到这个任务。", 404, "NOT_FOUND");
       taskId = task.id;
       if (payload.action === "task.step") { task.mode = 'group'; message = await taskStep(state, task, userId, options); }
+      else if (payload.action === 'task.finish') {
+        const progress = task.groupTurn || task.deliveryProgress;
+        if (progress) {
+          state.events.push({ id: progress.eventId, taskId: task.id, round: task.round, agentId: 'system', actorType: 'system', kind: 'submit', checked: true, createdAt: now(),
+            content: '主人已结束本次共议；当前未发布的成员发言已停止，已完成的工具记录和成果仍然保留。',
+            artifactIds: (task.artifacts || []).filter(artifact => artifact.eventId === progress.eventId).map(artifact => artifact.id) });
+        }
+        delete task.groupTurn; delete task.deliveryProgress; delete task.lastError;
+        task.status = 'completed'; task.completedAt ||= now(); message = '共议已结束，全部记录与成果已保留。';
+      }
       else if (payload.action === "task.pause" && task.status === "running") task.status = "paused";
       else if (payload.action === "task.resume" && task.status === "paused") {
-        if (task.participants.filter(id=>state.agents.some(agent=>agent.id===id&&agent.hired&&!agent.archivedAt)).length<2) throw new PalaceError('这个事务剩余成员不足两位，请新建事务。',409);
+        if (!task.participants.some(id=>state.agents.some(agent=>agent.id===id&&agent.hired&&!agent.archivedAt))) throw new PalaceError('这个事务当前没有在庭成员，请恢复参与成员或新建事务。',409);
         if (state.tasks.some(item => item.id !== task.id && item.status === "running")) throw new PalaceError("请先暂停正在运行的另一项任务。", 409);
         task.status = "running";
       }
@@ -472,12 +500,12 @@ export async function performAction(state: AppState, payload: ActionPayload, use
     }
     case "appointment.set": {
       const agent = agentById(state, required(payload.agentId, "角色ID", 100), true);
-      setAppointment(agent, { title: required(payload.title, "职位", 30), duties: payload.duties }, { id: id(), now: now() });
+      setAppointment(agent, { title: required(payload.title, "职位", 30), duties: payload.duties }, { id: id(), now: now(), memoryLimit: state.settings.memoryLimit });
       break;
     }
     case "appointment.remove": {
       const agent = agentById(state, required(payload.agentId, "角色ID", 100), true);
-      removeAppointment(agent, { id: id(), now: now() });
+      removeAppointment(agent, { id: id(), now: now(), memoryLimit: state.settings.memoryLimit });
       break;
     }
     case "settings": state.settings = validateSettings(payload, state.settings); break;
@@ -485,8 +513,9 @@ export async function performAction(state: AppState, payload: ActionPayload, use
       if (!env.BUCKET) throw new PalaceError("图片存储尚未配置。", 503, "IMAGE_NOT_CONFIGURED");
       const agent = agentById(state, required(payload.agentId, "角色ID", 100));
       const variables = imageIdentity(agent);
-      const prompt = configuredImagePrompt(getPromptText('portrait.template', state.promptOverrides, variables), variables);
-      const generated = await generatePortrait(prompt);
+      const basePrompt = getPromptText('portrait.template', state.promptOverrides, variables);
+      const prompt = configuredImagePrompt(basePrompt, variables);
+      const generated = await generatePortrait(prompt, undefined, { ...variables, prompt: basePrompt });
       const key = `portraits/${encodeURIComponent(userId)}/${agent.id}`;
       await env.BUCKET!.put(key, generated.bytes, { httpMetadata: { contentType: generated.contentType } });
       agent.portrait = `/api/portraits/${agent.id}?v=${Date.now()}`;
@@ -497,17 +526,7 @@ export async function performAction(state: AppState, payload: ActionPayload, use
     default: throw new PalaceError("不支持的操作。", 400);
   }
   state.updatedAt = now();
-  // 近期任务历史有上限，超出的旧记录会被我整理掉；长期记忆另行存储，不受这里的裁剪影响哦。
-  if (state.tasks.length > 30) {
-    const keep = new Set(state.tasks.filter(task => task.status !== "completed" || task.artifacts?.length).map(task => task.id));
-    state.tasks.slice(-20).forEach(task => keep.add(task.id));
-    state.tasks = state.tasks.filter(task => keep.has(task.id));
-    state.events = state.events.filter(event => keep.has(event.taskId));
-    state.relationships = state.relationships.filter(edge => keep.has(edge.taskId));
-  }
   hydrateConfig(state);
-  const serializedState = JSON.stringify(state, (key, value) => options.chatImageSink && key === "url" && typeof value === "string" && value.startsWith("data:image/") ? "[sandbox image]" : value);
-  if (new TextEncoder().encode(serializedState).length > 1_800_000) throw new PalaceError("存档接近容量上限，请先清理一些长期记忆。此次操作未保存。", 413, "STATE_CAPACITY");
   return { message, taskId };
 }
 
