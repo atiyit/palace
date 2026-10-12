@@ -15,7 +15,7 @@ export interface CharacterReferenceMetadata {
   height: number;
 }
 
-/** 主人，本适配器的精确参考仅支持 NovelAI V4.5 系列；旧版 V5 配置会映射到对应的 V4.5 型号。 */
+/** 主人，本适配器的精确参考功能仅支持 NovelAI V4.5 系列呢；如果配置了旧版 V5 型号，我会替您映射到对应的 V4.5 型号。 */
 export function characterReferenceModel(configuredModel: string): string {
   switch (configuredModel.trim()) {
     case "nai-diffusion-5-full": return "nai-diffusion-4-5-full";
@@ -30,7 +30,7 @@ export function characterReferenceModel(configuredModel: string): string {
   }
 }
 
-/** 主人，保留配置的 origin 和代理前缀；原生路由不使用 /v1 路径。 */
+/** 请容我先帮主人把配置里的 origin 和代理前缀原样保留下来——原生路由不走 /v1 路径，所以这里要特别摘掉呢。 */
 export function characterReferenceEndpoint(baseUrl: string, local = false): string {
   const normalized = normalizeBaseUrl(baseUrl, { local });
   const url = new URL(normalized);
@@ -47,7 +47,7 @@ function invalidReference(): PalaceError {
   );
 }
 
-/** 主人，从支持的参考画布中选择最接近原图宽高比的尺寸。 */
+/** 主人的参考图交给我来比对吧，我会从支持的画布尺寸中挑出宽高比最接近原图的那一组。 */
 function referenceCanvas(width: number, height: number): { width: number; height: number } {
   const ratio = width / height;
   const canvases = [
@@ -94,7 +94,7 @@ export async function buildCharacterReferenceRequest(
     fidelity: 0.5,
     ...canvas,
   };
-  // 主人，原生接口规范参见 NovelAI 文档，图片以原始 base64 PNG 格式传递。
+  // 按照 NovelAI 原生接口规范，图片要以原始 base64 PNG 格式放进请求体里——这部分我替主人包好了哦。
   const body = {
     input: prompt,
     model,

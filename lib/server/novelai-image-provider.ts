@@ -60,7 +60,7 @@ function zipImage(bytes: Uint8Array): { bytes: Uint8Array; contentType: string }
     let totalSize = 0;
     let entries = 0;
     const images: string[] = [];
-    // 主人，在分配任何解压缓冲区之前，先检查所有条目的声明大小。
+    // 在分配任何解压缓冲区之前，我会先逐条核对所有条目的声明大小——箱子没验完不开封呢。
     unzipSync(bytes, { filter(file) {
       if (++entries > MAX_ZIP_ENTRIES || !Number.isSafeInteger(file.originalSize) || file.originalSize < 0
         || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_NATIVE_RESPONSE_BYTES
@@ -105,7 +105,7 @@ function jsonImage(bytes: Uint8Array): { bytes: Uint8Array; contentType: string 
   return imageResult(Buffer.from(base64, "base64"));
 }
 
-/** 主人，只发一次请求：参考图请求失败时绝不能回退为无参考的纯文本生图。 */
+/** 这道关我替主人把牢：只发一次请求，参考图请求失败时绝不允许回退为无参考的纯文本生图。 */
 export async function generateReferenceImage(
   config: Pick<EffectiveProviderConfig, "baseUrl" | "model" | "apiKey" | "local">,
   prompt: string,

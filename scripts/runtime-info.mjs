@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1);
 const executable = realpathSync(process.execPath);
 const directory = dirname(executable);
-// 主人，这里按相对于当前 node 可执行文件的已知布局寻找 npm-cli.js，避免意外调用到系统上其他版本的 npm。
+// 我会按相对于当前 node 可执行文件的已知目录布局来寻找 npm-cli.js，替主人避开系统上可能混入的其他版本 npm 呢。
 const candidates = [
   join(directory, 'node_modules/npm/bin/npm-cli.js'),
   join(directory, '../lib/node_modules/npm/bin/npm-cli.js'),

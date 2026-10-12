@@ -1,6 +1,6 @@
 import { PalaceError } from "./errors.ts";
 
-/** 主人，从模型输出中提取一个括号配对完整的 JSON 对象，不执行文本内容，也不修补语义。 */
+/** 主人，我负责从模型输出中取出一个括号配对完整的 JSON 对象——只做提取，不执行文本内容，也不擅自修补语义呢。 */
 export function parseModelObject(text: string, finishReason?: string | null): Record<string, unknown> {
   if (finishReason === "length" || finishReason === "max_tokens") {
     throw new PalaceError("模型输出达到长度上限，结构化内容被截断。", 502, "PROVIDER_TRUNCATED");
@@ -34,7 +34,7 @@ export function parseModelObject(text: string, finishReason?: string | null): Re
   }
   if (start < 0) throw new PalaceError("模型未返回JSON对象。", 502, "PROVIDER_FORMAT");
   if (end < 0 || depth !== 0 || inString) throw new PalaceError("模型返回的JSON对象或字符串未闭合。", 502, "PROVIDER_FORMAT");
-  // 主人，JSON 对象外的数组包裹或不配对的结构字符不视为注释，会被判定为格式错误。
+  // JSON 对象外面若出现数组包裹或不配对的结构字符，我不会当作注释放过，会直接判定为格式错误哦。
   const outside = input.slice(0, start) + input.slice(end);
   if (/[\[\]{}]/.test(outside)) throw new PalaceError("JSON对象外含数组包裹或多余结构字符。", 502, "PROVIDER_FORMAT");
   try {
@@ -42,7 +42,7 @@ export function parseModelObject(text: string, finishReason?: string | null): Re
     if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("not an object");
     return result as Record<string, unknown>;
   } catch (error) {
-    // 主人，JavaScript 解析器的错误信息可能包含原始输出片段，这里只保留数字位置信息。
+    // JavaScript 解析器的错误信息里可能夹带原始输出片段，我替主人只留下数字位置信息，把多余的都擦干净。
     const detail = error instanceof SyntaxError ? error.message : "";
     const position = /position\s+(\d+)/i.exec(detail);
     const line = /line\s+(\d+)\s+column\s+(\d+)/i.exec(detail);

@@ -30,7 +30,7 @@ export function normalizeCharacterSkills(input: Partial<Record<Skill, number>>):
   return allocate(ALL_SKILLS, input, SKILL_BUDGET, 2) as Record<Skill, number>;
 }
 
-/** 主人，旧版六维数值会原样保留；新增维度是从已有属性显式推导的先验值。 */
+/** 主人放心，旧版六维数值我会原封不动地保管；新增的维度则是从已有属性显式推导出的先验值，不会凭空捏造呢。 */
 export function upgradeSkills(input: Partial<Record<Skill, number>>): Record<Skill, number> {
   if (ALL_SKILLS.every(key => typeof input[key] === 'number' && Number.isFinite(input[key]))) {
     const values = ALL_SKILLS.map(key => input[key]!);
@@ -86,7 +86,7 @@ export function profileTextLength(profile: CharacterProfile): number {
 }
 
 export function upgradeAgent(agent: Agent): Agent {
-  // 主人，角色会保留创建时使用的分配策略，即使调试选项后来发生了变化也不会受影响。
+  // 每位角色创建时选定的分配策略会一直沿用——即使主人后来调整了调试选项，这里也不会受影响呢。
   agent.skills = agent.skillPolicy === 'unrestricted'
     ? Object.fromEntries(ALL_SKILLS.map(key => {
       const value = agent.skills[key];

@@ -11,7 +11,7 @@ function findMember(state: AppState, agentId: string): Agent {
   return agent;
 }
 
-/** 主人，要确保下一位未发言者的位置不变；移除靠前的发言者时不能跳过任何人的回合。 */
+/** 请把排班表交给我整理吧——要确保下一位未发言者的位置不变，移除靠前的发言者时绝不能跳过任何人的回合呢。 */
 function repairTask(task: Task, available: Set<string>, now: string): void {
   if (task.status === 'completed') return;
   const played = task.order.slice(0, task.cursor).filter(id => available.has(id));
@@ -46,7 +46,7 @@ export function restoreMember(state: AppState, agentId: string, now = new Date()
   state.updatedAt = now;
 }
 
-/** 主人，成员变动信息会出现在角色上下文中，但不会强制触发悲伤情绪或注意力惩罚。 */
+/** 成员变动消息我会放进角色可见的上下文里，但不会强制触发悲伤情绪或施加注意力惩罚哦。 */
 export function membershipContext(state: AppState) {
   return {
     presentMembers: activeMembers(state).map(agent => ({ id: agent.id, name: agent.name })),
@@ -95,7 +95,7 @@ export function permanentlyDeleteMember(state: AppState, agentId: string, confir
     }
     for (const run of task.toolRuns || []) if (run.agentId === agentId) run.agentId = DELETED_MEMBER_ID;
   }
-  // 主人，成功生成的候选人是档案的完整副本，删除成员时需要一并清理招募中的同 ID 候选。
+  // 成功生成的候选人是档案的完整副本呢——删除成员时，招募中同 ID 的候选也要一并清理干净才行。
   if (state.recruitment?.slots.some(slot => slot.candidate?.id === agentId)) delete state.recruitment;
   state.pendingCleanup = [...(state.pendingCleanup || []), { id: crypto.randomUUID(), kind: 'member', agentId, imageIds: ownedImageIds(agent), createdAt: now }];
   state.updatedAt = now;
@@ -104,7 +104,7 @@ export function permanentlyDeleteMember(state: AppState, agentId: string, confir
 export function clearAllData(state: AppState, confirmation: unknown, now = new Date().toISOString()): void {
   if (confirmation !== '清除所有数据') throw new PalaceError('请输入「清除所有数据」确认，包括角色、聊天、图片、成果和 API 配置。', 400, 'CONFIRMATION_REQUIRED');
   const job: CleanupJob = { id: crypto.randomUUID(), kind: 'all', imageIds: [], createdAt: now };
-  // 主人，可选字段和未来扩展字段也要一并清除；空庭院不等于初始种子名册哦。
+  // 请容我把可选字段和未来扩展字段也一并清除；清空后的庭院不等于初始种子名册哦。
   for (const key of Object.keys(state)) delete (state as unknown as Record<string, unknown>)[key];
   Object.assign(state, {
     agents: [], tasks: [], events: [], relationships: [], dailyEvents: [], roleProposals: [], membershipEvents: [], dailyTurn: 0,

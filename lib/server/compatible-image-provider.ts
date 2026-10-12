@@ -11,7 +11,7 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const invalidImage = () => new PalaceError('图片服务未返回一张有效的PNG、JPEG或WebP图片，或内容超出大小限制。', 502, 'IMAGE_FORMAT');
 const invalidProvider = () => new PalaceError('图片服务未正确处理参考图请求，请确认配置的参考模型支持 /images/edits 文件上传接口。', 502, 'IMAGE_REFERENCE_PROVIDER');
 
-/** 主人，增量读取响应体（含错误情况），不信任 Content-Length 声明值。 */
+/** 我会替主人一块一块地增量读取响应体——出错的情况也不例外，而且绝不轻信 Content-Length 声明值呀。 */
 export async function readBoundedImageBody(response: Response): Promise<Uint8Array> {
   const declared = Number(response.headers.get('content-length') || 0);
   if (declared > MAX_COMPATIBLE_RESPONSE_BYTES) { try { await response.body?.cancel(); } catch {} throw invalidImage(); }
@@ -27,7 +27,7 @@ export async function readBoundedImageBody(response: Response): Promise<Uint8Arr
   const result = new Uint8Array(length); let offset = 0; for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; } return result;
 }
 
-/** 主人，URL 不会被主动抓取：生成的图片字节必须由配置的服务商直接返回。 */
+/** 主人，这道门我守得很严呢——本函数不会主动去抓取任何 URL，生成的图片字节必须由配置好的服务商直接交到我手里才行。 */
 export function decodeCompatibleImage(body: Uint8Array): { bytes: Uint8Array; contentType: string } {
   const text = new TextDecoder().decode(body); let value: Record<string, unknown>;
   try { value = JSON.parse(text); } catch { throw invalidImage(); }
@@ -52,7 +52,7 @@ export function decodeCompatibleImage(body: Uint8Array): { bytes: Uint8Array; co
 
 export function isGptImageModel(model: string): boolean { return /(?:^|[\s\]\/])gpt-image-|^chatgpt-image-/i.test(model); }
 
-/** 主人，标准 multipart 图片编辑流程会保留显式指定的模型，并上传实际的本地头像。 */
+/** 请容我替主人把标准 multipart 图片编辑流程的托盘端好：显式指定的模型名称会原样保留，同时上传实际的本地头像作为参考素材。 */
 export async function generateCompatibleReferenceImage(config: Pick<ProviderConfig, 'baseUrl' | 'model' | 'apiKey' | 'local'>, prompt: string, reference: PortraitReference) {
   const model = validateModel(config.model), endpoint = `${normalizeBaseUrl(config.baseUrl, { local: config.local })}/images/edits`;
   let bytes: Uint8Array, width: number, height: number;

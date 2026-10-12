@@ -65,7 +65,7 @@ export function userAvatarPrompt(state: AppState, request = '', options: { promp
   return renderImagePrompt(base, options.promptStyle, options.customPrompt, { ...variables, appearance: variables.description, userMessage: variables.request });
 }
 
-/** 主人，实际解码像素而非信任声称的 MIME 类型，剥离元数据并限制像素与输出尺寸。 */
+/** 我会亲自解码像素来验明正身，不轻信声称的 MIME 类型；元数据也一并剥离，像素尺寸和输出大小都严格把关呀。 */
 export async function normalizeUserImage(bytes: Uint8Array, contentType: string): Promise<NormalizedUserImage> {
   const expected = ({ 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp' } as Record<string, string>)[contentType];
   const invalid = () => new PalaceError('图片无效，请上传10 MiB以内的 PNG、JPEG 或 WebP 图片。', 400, 'USER_IMAGE_INVALID');
@@ -90,7 +90,7 @@ export async function decodeUserImage(dataBase64: string, contentType: string): 
   return normalizeUserImage(new Uint8Array(bytes), contentType);
 }
 
-/** 主人，为头像和聊天图片上传读取有大小上限的 JSON 请求体。 */
+/** 不管是头像还是聊天图片上传，请求体都由我在门口检查——JSON 格式和大小上限缺一不可呢。 */
 export async function userImageRequestJson(request: Request): Promise<unknown> {
   const origin = request.headers.get('origin');
   if (!origin || origin !== new URL(request.url).origin || request.headers.get('sec-fetch-site') === 'cross-site') throw new PalaceError('请求来源不匹配，请在应用页面内操作。', 403, 'ORIGIN_MISMATCH');

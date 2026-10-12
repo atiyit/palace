@@ -148,7 +148,7 @@ export async function runDebugCore(state: AppState, request: DebugRequest, mode:
   let compiled: ReturnType<typeof compileStage>;
   try {
     if (request.promptId && !listPrompts(clone.promptOverrides).some(item => item.id === request.promptId)) throw new Error("未知的提示词配置项。");
-    // 主人，沙盒会移除已归档角色并可能添加示例；排除列表必须反映真实存档的状态。
+    // 沙盒环境会移除已归档角色并可能添加示例，所以排除列表必须如实反映真实存档的状态，我先替主人核对一遍。
     const recruitmentRequest = selectedStage(request.stage, request.promptId) === "recruiter"
       ? { ...request, input: { existingNamesToAvoid: recruitmentNamesToAvoid(state), diversity: recruitmentDiversity(state, { id: 'debug-batch', brief: String(inputObject(request.input).brief || ''), count: 1, slots: [], applied: false, createdAt: state.updatedAt, updatedAt: state.updatedAt }, 1), ...inputObject(request.input) } }
       : request;

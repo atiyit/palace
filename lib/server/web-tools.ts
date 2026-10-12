@@ -3,7 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { isIP } from 'node:net';
 
-/** 主人，仅使用固定的 TLS 验证解析器；不允许调用方控制源或重定向。 */
+/** 请容我把 DNS 备用解析这道门锁紧——只走固定的 TLS 验证解析器，不允许调用方控制源或重定向呢。 */
 async function publicDnsFallback(hostname: string): Promise<{ address: string; family: number }[]> {
   const endpoint = new URL('https://dns.google/resolve');
   endpoint.searchParams.set('name', hostname); endpoint.searchParams.set('type', 'A');
@@ -31,9 +31,9 @@ export function publicAddress(address: string): boolean {
     return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 168 || (b === 0 && [0,2].includes(c)) || (b === 88 && c === 99))) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && ([18,19].includes(b) || (b === 51 && c === 100))) || (a === 203 && b === 0 && c === 113));
   }
   if (isIP(address) !== 6 || address.includes('%')) return false;
-  // 主人，将十六进制组转为数值可以让压缩写法和补零写法等价对待。
-  // 主人，限定为全局单播地址范围，排除特殊用途和隧道地址段，
-  // 包括所有 6to4 地址，防止内嵌的私有 IPv4 绕过此关卡。
+  // 主人，我先把十六进制组统一换算为数值，这样压缩写法和补零写法就能等价对待了。
+  // 接下来只放行全局单播地址范围，特殊用途和隧道地址段都要拦在门外，
+  // 包括所有 6to4 地址也不例外——防止内嵌的私有 IPv4 绕过这道关卡呀。
   const [left, right = ''] = address.toLowerCase().split('::');
   const start = left ? left.split(':').map(value => Number.parseInt(value, 16)) : [];
   const end = right ? right.split(':').map(value => Number.parseInt(value, 16)) : [];
@@ -52,8 +52,8 @@ export async function publicUrl(raw: string): Promise<{ url: URL; address: strin
   if (ip && !publicAddress(hostname)) throw new Error('不能访问本机、局域网或保留地址。');
   if (!ip && (!hostname.includes('.') || /(?:^|\.)(?:localhost|local|internal|lan|home|test|invalid)$/i.test(hostname) || !hostname.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)))) throw new Error('不能访问本机或内部地址。');
   let records = await lookup(hostname, { all: true });
-  // 主人，某些本地代理模式会把公网域名映射到 198.18/15 的虚假 IP 段。
-  // 主人，对普通域名独立解析，而不是放行私有 IP 访问。
+  // 主人请留意，某些本地代理模式会把公网域名映射到 198.18/15 的虚假 IP 段。
+  // 所以我会替主人对普通域名独立解析，而不是放行私有 IP 访问哦。
   if (!ip && records.length && records.some(record => !publicAddress(record.address))) records = await publicDnsFallback(hostname);
   if (!records.length || records.some(record => !publicAddress(record.address))) throw new Error('不能访问本机、局域网或保留地址。');
   return { url, ...(records.find(record => record.family === 4) || records[0]) };
@@ -64,8 +64,8 @@ export async function readPublicWeb(raw: string, redirects = 0): Promise<{ url: 
   const result = await new Promise<{ status: number; location?: string; type: string; body: string }>((resolve, reject) => {
     const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
       method: 'GET', headers: { 'User-Agent': 'PalaceLocal/1.0 (research assistant)', Accept: 'text/html,application/xhtml+xml,application/rss+xml,text/plain,application/json' },
-      // 主人，Node 在自动选择 IP 版本时可能以 all:true 形式发起 lookup 回调。
-      // 主人，无论哪种回调形式，都固定使用已检查过的地址。
+      // Node 在自动选择 IP 版本时，可能以 all:true 形式发起 lookup 回调。
+      // 不管它用哪种形式来问，我都只交出已经检查过的那个地址，请主人放心。
       lookup: (_hostname, options, callback) => options.all ? callback(null, [{ address, family }]) : callback(null, address, family),
     }, response => {
       const chunks: Buffer[] = []; let bytes = 0;

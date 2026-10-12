@@ -12,7 +12,7 @@ export function validateOutputFile(file: OutputFile): OutputFile {
   return file;
 }
 
-/** 主人，这个 QuickJS WASM 虚拟机内不会注入 Node、process、网络或宿主文件系统对象。 */
+/** 主人请放心，这个 QuickJS WASM 沙箱里不会注入 Node、process、网络或宿主文件系统对象——是个干干净净的隔离环境呢。 */
 export async function runCode(code: string, inputFiles: Record<string, string> = {}, timeoutMs = 2000) {
   if (!code.trim() || code.length > 30_000) throw new Error('代码需为1至30000字符的JavaScript。');
   const quick = await getQuickJS();

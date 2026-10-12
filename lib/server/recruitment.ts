@@ -24,7 +24,7 @@ function nameKey(name: string): string {
   return name.normalize("NFKC").replace(/\s/gu, "").toLowerCase();
 }
 
-/** 主人，保留展示用的原始名称给模型，同时用归一化拼写做一致性比较。 */
+/** 展示用的原始名称我会原样递给模型，同时用归一化拼写做一致性比较——两边都替主人照顾好呢。 */
 export function recruitmentNamesToAvoid(state: AppState, batch = state.recruitment): string[] {
   const names = new Map<string, string>();
   const existing = [...state.agents.map(agent => agent.name), ...(batch?.slots.flatMap(slot => slot.status === "succeeded" && slot.candidate ? [slot.candidate.name] : []) || [])];
@@ -50,7 +50,7 @@ export function recruitmentCount(input: unknown = 3): number {
   return input;
 }
 
-/** 主人，只有结构元数据会成为诊断信息；模型返回的实际值不会被复制到错误报告中。 */
+/** 只有结构元数据会被整理进诊断信息；模型返回的实际值不会被我复制到错误报告里，请主人放心。 */
 export function recruitmentSchemaIssues(error: z.ZodError): RecruitmentIssue[] {
   return error.issues.slice(0, 8).map(issue => {
     let message = "字段不符合要求";
@@ -100,9 +100,9 @@ function candidateAgent(person: z.infer<typeof richCandidateSchema>, slot: numbe
   return { ...person, skills: contentRulesEnabled ? normalizeCharacterSkills(person.skills) : { ...person.skills }, skillPolicy: contentRulesEnabled ? "balanced" : "unrestricted", profileVersion: 2, profileSource: "generated", id: id(), evidence: {}, portrait: "", color: colors[(slot - 1) % colors.length], hired: false, liked: false, weight: 1, chatBoost: 0, createdAt: now, strategy: person.approach, memories: [], chats: [] };
 }
 
-/** 主人，对选定的招募槽位并发调用模型（最多两个工作者），每槽一次模型调用。
- * 每条响应独立做重名检查；启用内容规则时还做多维相似度检查，阻止近似副本同时通过。
- * 模型错误记为槽位数据而非自动重试；阻塞性错误会终止后续槽位。 */
+/** 请把寻访的事情交给我吧——我会派出最多两位女仆同时去接待（并发工作者），每个招募槽位各见一次模型。
+ * 每份回信我都单独核对名册，有重名的立刻退回；主人启用内容规则时，我还会做多维相似度检查，不让近似的副本同时蒙混过关。
+ * 模型那边出了差错，我会如实记在槽位档案里，不擅自替主人重试；遇到阻塞性错误则后续槽位一律暂停呢。 */
 async function generateSlots(state: AppState, batch: RecruitmentBatch, targets: RecruitmentSlot[], dependencies: RecruitmentDependencies): Promise<string> {
   const { contentRulesEnabled } = contentValidationOptions(state);
   const candidateResponse = z.object({ candidates: z.array(createRichCandidateSchema(contentRulesEnabled)).length(1) });
@@ -112,7 +112,7 @@ async function generateSlots(state: AppState, batch: RecruitmentBatch, targets: 
   const names = new Map(recruitmentNamesToAvoid(state, batch).map(name => [nameKey(name), name]));
   let cursor = 0;
   let blocked: Failure | undefined;
-  // 主人，两个并发工作者，每个选中的槽位只调用一次模型。模型错误记为数据，不自动重试。
+  // 我安排了两位并发工作者，每个选中的槽位只叩门一次模型。若模型回话有误，就老实记进档案，不会自作主张地重试哦。
   await Promise.all(Array.from({ length: Math.min(2, targets.length) }, async () => {
     while (!blocked && cursor < targets.length) {
       const remaining = deadline - now();
@@ -131,7 +131,7 @@ async function generateSlots(state: AppState, batch: RecruitmentBatch, targets: 
         const person = parsed.data.candidates[0];
         const duplicate = names.get(nameKey(person.name));
         if (duplicate !== undefined) { failSlot(slot, duplicateFailure(duplicate)); continue; }
-        // 主人，启用内容规则时，每条响应返回后都检查相似度，避免并发生成的近似副本同时通过。
+        // 启用内容规则时，每收到一封回信我都会立刻比对相似度——这份检查我会逐一做完，尽量避免并发生成的近似副本同时通过呀。
         const similar = contentRulesEnabled ? recruitmentDiversityIssues(person, recruitmentKnownCharacters(state, batch), batch.brief) : [];
         if (similar.length) { failSlot(slot, { code: "RECRUITMENT_SIMILAR", blocksQueue: false, issues: similar }); continue; }
         names.set(nameKey(person.name), person.name);
@@ -149,9 +149,9 @@ async function generateSlots(state: AppState, batch: RecruitmentBatch, targets: 
   return applyCompletedRecruitment(state, batch);
 }
 
-/** 主人，当所有槽位都有结果（成功或已跳过）时，尝试将成功候选应用到庭院。
- * 如果在重试间隙有候选被邀请导致重名，冲突项会标记失败但不替换已有成员。
- * 返回值是面向用户的中文结果摘要，成功候选会被保留。 */
+/** 等所有槽位都有了着落（成功或已跳过），我就替主人把成功的候选人送进候选池。
+ * 不过主人若在重试间隙邀请了新成员导致重名，我会将冲突项标记失败，绝不擅自替换已入府的成员。
+ * 最后我会呈上一份面向主人的中文结果摘要，成功的候选人会被妥善保留呢。 */
 function applyCompletedRecruitment(state: AppState, batch: RecruitmentBatch): string {
   const successful = batch.slots.filter(slot => slot.status === "succeeded" && slot.candidate);
   const skipped = batch.slots.filter(slot => slot.status === "skipped").length;
@@ -164,7 +164,7 @@ function applyCompletedRecruitment(state: AppState, batch: RecruitmentBatch): st
     const hiredNames = new Map(hired.map(agent => [nameKey(agent.name), agent.name]));
     const conflicts = successful.filter(slot => hiredNames.has(nameKey(slot.candidate!.name)));
     if (conflicts.length) {
-      // 主人，用户可能在重试间隙已邀请了旧候选人，绝不能替换已加入的成员。
+      // 主人有可能在重试间隙已经邀请了旧候选人入府，这道门由我替主人守着——已加入的成员绝不能被替换。
       for (const conflict of conflicts) failSlot(conflict, duplicateFailure(hiredNames.get(nameKey(conflict.candidate!.name))!));
       return `已保留${successful.length - conflicts.length}/${batch.count}份成功档案；${conflicts.length}项与新邀请成员重名，可单独重新生成。`;
     }
@@ -193,7 +193,7 @@ export async function retryRecruitment(state: AppState, batchId: string, slot: u
   return generateSlots(state, batch, targets, dependencies);
 }
 
-/** 主人，只移除失败的槽位；保留其编号和原始请求数量，以维护批次历史的完整性。 */
+/** 请容我只收走未通过的简历；槽位编号和原始请求数量我会原样保留，好让批次的来龙去脉完完整整呢。 */
 export function skipRecruitmentSlot(state: AppState, batchId: string, slot: unknown): string {
   const batch = state.recruitment;
   if (!batch || batch.id !== batchId) throw new PalaceError("这批招募已经过期，请刷新后选择当前批次。", 409, "RECRUITMENT_EXPIRED");

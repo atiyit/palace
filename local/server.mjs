@@ -24,9 +24,9 @@ function sendJson(response, status, value) {
   response.end(JSON.stringify(value));
 }
 
-/** 主人，本机服务器的同源检查：验证 Host 头、Origin 头、Sec-Fetch-Site 和 Referer。
- * Host 必须匹配；存在的 Origin 和 Referer 必须同源，Sec-Fetch-Site 为 cross-site 时拒绝。
- * 这是服务端请求边界检查；API 的 POST 请求还在下方单独要求同源 Origin。 */
+/** 主人，这是本机服务器的同源迎客检查：我会逐一验证 Host 头、Origin 头、Sec-Fetch-Site 和 Referer。
+ * Host 必须匹配；存在的 Origin 和 Referer 必须同源，Sec-Fetch-Site 为 cross-site 时直接谢绝。
+ * 这是服务端请求边界检查；API 的 POST 请求还在下方由我单独要求同源 Origin 哦。 */
 function sameOrigin(request) {
   if (request.headers.host !== hostname) return false;
   if (request.headers.origin && request.headers.origin !== origin) return false;
@@ -98,7 +98,7 @@ server.requestTimeout = 380000;
 server.headersTimeout = 15000;
 server.timeout = 390000;
 vite = await createViteServer({ configFile: join(project, 'local/vite.config.ts'), server: { middlewareMode: true, hmr: { server, host: '127.0.0.1', port }, allowedHosts: ['127.0.0.1'] } });
-// 主人，提前初始化存储，让加密保管库的问题在 UI 服务启动前就暴露出来。
+// 我先替主人把存储初始化好，让加密保管库的问题在 UI 服务启动前就暴露出来呀。
 await vite.ssrLoadModule(join(project, 'local/runtime.ts'));
 server.on('error', async error => { console.error(error.code === 'EADDRINUSE' ? `本机端口 ${port} 已被其他程序占用。` : '本地服务器启动失败。'); await vite.close(); process.exitCode = 1; });
 server.listen(port, '127.0.0.1', () => console.log(`后宫实验室本地版已启动：${origin}`));

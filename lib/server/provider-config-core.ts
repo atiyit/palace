@@ -35,7 +35,7 @@ function privateHostname(raw: string): boolean {
     if (words.slice(0, 5).every(value => value === 0) && words[5] === 0xffff) return privateIPv4([words[6] >> 8, words[6] & 255, words[7] >> 8, words[7] & 255]);
     return words.slice(0, 6).every(value => value === 0) || (words[0] & 0xfe00) === 0xfc00 || (words[0] & 0xffc0) === 0xfe80 || (words[0] & 0xffc0) === 0xfec0 || (words[0] & 0xff00) === 0xff00;
   }
-  // 主人，只接受完全限定的公网域名；本地主机别名不被允许。
+  // 这道门由我替主人守着：只放行完全限定的公网域名，本地主机别名一律挡在外面。
   return !host.includes(".") || !/^[a-z0-9.-]+$/.test(host) || host.split(".").some(label => !label || label.startsWith("-") || label.endsWith("-"));
 }
 
@@ -76,7 +76,7 @@ export function normalizeBaseUrl(input: string, options: Partial<ProviderConnect
     if (!path || path === '/') path = '/v1';
   }
   url.pathname = path;
-  // 主人，URL 序列化会去掉 :80/:443；保留本地显式配置的端口可以让归一化操作保持幂等。
+  // URL 序列化会自动去掉 :80/:443，但本地模式下主人显式配的端口要保留，这样归一化操作才能保持幂等呀。
   if (local) return `${url.protocol}//${url.hostname}:${localPort}${url.pathname === '/' ? '' : url.pathname}`.replace(/\/$/, '');
   return url.toString().replace(/\/$/, "");
 }
@@ -92,7 +92,7 @@ export function validateApiKey(input: string): string {
   return input.trim();
 }
 
-/** 主人，只迁移缺失的旧版设置；已经显式指定的参考模型不会被静默替换。 */
+/** 请放心，我只迁移缺失的旧版设置；主人已经显式指定的参考模型，我不会偷偷替换掉的。 */
 export function defaultReferenceModel(model: string): string {
   if (model === 'nai-diffusion-5-full') return 'nai-diffusion-4-5-full';
   if (model === 'nai-diffusion-5-curated') return 'nai-diffusion-4-5-curated';
@@ -107,7 +107,7 @@ export function imageProviderOptions(model: string, input: Partial<ImageProvider
   return { referenceModel, promptStyle, customPrompt };
 }
 
-/** 主人，根据用户输入和当前配置准备服务商更新，包含地址归一化、模型验证和密钥安全策略。
+/** 我先替主人把服务商更新整理好：地址归一化、模型验证、密钥安全策略一并检查。
  * 更换公网域名时必须提供新密钥，防止旧密钥被误发到新服务。
  * 本地模式下在同源未变时可以沿用现有密钥。 */
 export function prepareProviderUpdate(current: EffectiveProviderConfig, input: ProviderUpdate): ProviderConfig {
@@ -127,7 +127,7 @@ export function prepareProviderUpdate(current: EffectiveProviderConfig, input: P
 
 export function providerDefaults(environment: ProviderDefaultEnvironment): { text: EffectiveProviderConfig; image: EffectiveProviderConfig } {
   const text: EffectiveProviderConfig = { baseUrl: normalizeBaseUrl(environment.LLM_BASE_URL || DEFAULT_PROVIDER_BASE_URL), model: environment.LLM_MODEL || DEFAULT_TEXT_MODEL, apiKey: environment.LLM_API_KEY || "", source: "default", ...providerConnectionOptions(), visionEnabled: false };
-  // 主人，图片默认配置只回退到服务端环境变量，不会使用用户的文本渠道覆盖值。
+  // 图片渠道的默认配置只回退到服务端环境变量哦，不会拿主人的文本渠道覆盖值来顶替。
   const imageModel = environment.IMAGE_MODEL || 'nai-diffusion-5-full';
   const image: EffectiveProviderConfig = { baseUrl: normalizeBaseUrl(environment.IMAGE_BASE_URL || environment.LLM_BASE_URL || DEFAULT_PROVIDER_BASE_URL), model: imageModel, apiKey: environment.IMAGE_API_KEY || environment.LLM_API_KEY || "", source: "default", ...imageProviderOptions(imageModel), ...providerConnectionOptions() };
   return { text, image };
@@ -156,9 +156,9 @@ async function encryptionKey(secret: string): Promise<CryptoKey> {
 
 const associatedData = (userId: string, kind: ProviderKind) => new TextEncoder().encode(JSON.stringify(["palace-provider-key-v1", userId, kind]));
 
-/** 主人，使用 AES-256-GCM 加密 API 密钥，IV 随机生成，附加数据绑定用户 ID 和渠道类型。
+/** 主人的 API 密钥就由我用 AES-256-GCM 锁进保险箱吧——IV 随机生成，附加数据绑定用户 ID 和渠道类型。
  * 密文格式为 v1.{base64IV}.{base64密文}，方便版本化和解密路由。
- * 解密失败时会提示重新保存，不会泄露原始密钥内容。 */
+ * 万一解密失败会提示主人重新保存，绝不泄露原始密钥内容。 */
 export async function encryptApiKey(apiKey: string, secret: string, userId: string, kind: ProviderKind): Promise<string> {
   const key = await encryptionKey(secret);
   const iv = crypto.getRandomValues(new Uint8Array(12));

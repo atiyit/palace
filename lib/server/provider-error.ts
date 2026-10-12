@@ -4,7 +4,7 @@ const quotaCodes = new Set(["pre_consume_token_quota_failed", "insufficient_quot
 const quotaMessage = /token\s+quota\s+is\s+not\s+enough|insufficient\s+(?:account\s+)?(?:balance|quota)|(?:account\s+)?balance\s+(?:is\s+)?not\s+enough|余额不足|可用(?:余额|额度)不足/i;
 const record = (value: unknown): Record<string, unknown> | undefined => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 
-/** 主人，识别已知的服务商错误类型，但不会暴露网关原始响应或余额信息。 */
+/** 我会帮主人辨认已知的服务商错误类型，但网关的原始响应和余额明细不会暴露出去呢。 */
 export function classifyProviderError(status: number, responseText: string): PalaceError {
   let code = "";
   let message = responseText.slice(0, 100_000);

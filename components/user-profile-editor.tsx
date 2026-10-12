@@ -30,7 +30,7 @@ export function UserProfileEditor({ state, busy, onState, onBusyChange }: {
   const dirty = JSON.stringify(draft) !== savedText;
   useEffect(() => {
     if (savedTextRef.current !== savedText) {
-      // 主人，上传头像可能会创建首份保存的资料；此时不能丢弃尚未保存的文本编辑内容。
+      // 主人，上传头像时有可能顺带创建出第一份保存的资料呢——我会先确认草稿和旧快照一致才同步，绝不擅自丢掉主人正在编辑的文字内容。
       if (JSON.stringify(draftRef.current) === savedTextRef.current) setDraft(JSON.parse(savedText));
       savedTextRef.current = savedText;
     }

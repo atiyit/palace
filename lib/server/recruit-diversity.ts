@@ -4,7 +4,7 @@ type PublicCharacter = Pick<Agent, "name" | "title" | "traits" | "voice" | "appr
 type DetailGroup = "background" | "motivation" | "interaction" | "expression" | "daily";
 type DetailField = { path: string; group: DetailGroup; text: string };
 
-/** 主人，这些只是可选的创意切入角度，不是种族、性格或技能的指定项。 */
+/** 这些只是可选的创意切入角度，像一叠参考卡片——不是种族、性格或技能的指定项呢。 */
 const ANGLES = {
   background: ["一次主动转轨", "长期专注的小领域", "不同环境之间的适应", "一次失误后的修正", "某项责任的交接", "从模仿到自己的方法", "一次被误解的成果", "普通日常中的转折", "一段未完成的计划", "从孤独工作到与人协作"],
   motivation: ["归属与独立的拉扯", "好奇心与谨慎的拉扯", "被看见与保持隐私的拉扯", "可靠形象与真实弱点的拉扯", "熟悉秩序与新体验的拉扯", "个人标准与他人需要的拉扯", "及时回应与认真思考的拉扯", "竞争愿望与承认他人的拉扯", "坚持约定与临场变通的拉扯", "保存过去与重新开始的拉扯"],
@@ -76,13 +76,13 @@ export function recruitmentDiversity(state: AppState, batch: RecruitmentBatch, s
       if (prior) prior.count++; else counts.set(key, { field, value: clip(value, 100), count: 1 });
     }
   }
-  // 主人，优先纳入本批次候选，再纳入近期保留角色；完整集合仍参与重复检测。
+  // 我先把本批次候选角色排在前面，再纳入近期保留的角色；完整集合仍然参与重复检测呀。
   const selected = known.slice().sort((a, b) => {
     const pending = (agent: Agent) => batch.slots.some(item => item.status === "succeeded" && item.candidate?.id === agent.id) ? 1 : 0;
     return pending(b) - pending(a) || b.createdAt.localeCompare(a.createdAt);
   }).slice(0, 24);
   const assignedVariation = Object.fromEntries(Object.entries(ANGLES).map(([axis, choices]) => {
-    // 主人，每个创意轴做一次排列，避免两个并发调用拿到相同的创意槽位。
+    // 每个创意轴做一次排列错位，这样即使两位来宾同时敲门，也不会拿到相同的创意槽位呢。
     const offset = hash(`${batch.id}:${axis}`) % choices.length;
     const stride = [1, 3, 7, 9][hash(`${axis}:${batch.id}`) % 4];
     return [axis, choices[(offset + (slot - 1) * stride) % choices.length]];
@@ -129,7 +129,7 @@ function normalizedDetail(text: string, name: string): string {
 }
 
 function requestsIdenticalDossier(brief: string): boolean {
-  // 主人，共享种族、外貌或职业并不等于要求复制完整角色档案。
+  // 共享种族、外貌或职业好比穿了同款制服——并不等于要求复制完整角色档案哦。
   const wholeDossier = [
     /(?:完全相同|一模一样)(?:的)?(?:人物设定|人物档案|人格|性格|角色|人物|克隆角色)|同一(?:个)?人格/giu,
     /(?:所有|全部|整套|全套|完整|其余|其他)(?:的)?(?:人物|角色)?(?:设定|档案)[^。！？；\n]{0,35}?(?:保持一致|一致|相同|不变|照搬|沿用|一样)/giu,
@@ -143,7 +143,7 @@ function requestsIdenticalDossier(brief: string): boolean {
     for (const match of brief.matchAll(pattern)) {
       const prefix = brief.slice(Math.max(0, match.index! - 16), match.index).split(/[，,。！？；;\n]/u).at(-1) || "";
       if (negation.test(prefix) || negation.test(match[0])) continue;
-      // 主人，「外观完全相同的角色」这样的描述仍然允许经历和性格自由发挥。
+      // 「外观完全相同的角色」这样的描述仍然允许经历和性格自由发挥，我不会多管这种情况呢。
       if (/^(?:完全相同|一模一样)/u.test(match[0]) && /(?:外观|外貌|衣服|服装|发型|种族|职业|技能|能力|方向|风格|型号|模型)[^，,。！？；;\n]{0,8}$/u.test(prefix)) continue;
       return true;
     }
@@ -151,9 +151,9 @@ function requestsIdenticalDossier(brief: string): boolean {
   return false;
 }
 
-/** 主人，只拒绝多维度近乎复制的完整档案；共享种族、外貌、技能或性格标签不构成拒绝理由。 */
+/** 我只拦下多维度近乎复制的完整档案；共享种族、外貌、技能或性格标签并不构成拒绝理由呀。 */
 export function recruitmentDiversityIssues(person: PublicCharacter, known: PublicCharacter[], brief: string): RecruitmentIssue[] {
-  // 主人，如果用户明确要求相同角色则允许通过；其他情况下各项细节可以自由调整。
+  // 如果主人明确要求相同角色，我就放行；其他情况下各项细节可以自由调整。
   if (requestsIdenticalDossier(brief)) return [];
   const briefKey = normalized(brief);
   const fields = detailFields(person).map(field => ({ ...field, text: normalizedDetail(field.text, person.name) })).filter(field => field.text.length >= 20 && !briefKey.includes(field.text));

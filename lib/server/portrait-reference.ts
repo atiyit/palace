@@ -26,7 +26,7 @@ function matchesSignature(bytes: Uint8Array, contentType: string): boolean {
   return false;
 }
 
-/** 主人，只读取属于当前用户的指定角色头像存储，不会抓取任何外部 URL。 */
+/** 我只会从属于主人的角色头像存储里取指定那份，绝不会去抓取任何外部 URL 呢。 */
 export async function loadPortraitReference(
   agent: Pick<Agent, "id" | "portrait">,
   userId: string,

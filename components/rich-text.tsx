@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-// 主人，这里只实现了刻意精简的 Markdown 子集，所有模型文本都变为 React 文本节点；
-// HTML、链接和图片不会被解析或加载。
+// 这里只实现了刻意精简的 Markdown 子集，所有模型文本都变为 React 文本节点；
+// HTML、链接和图片不会被解析或加载——主人，请容我只呈上纯净的文字内容呀。
 function inline(text: string): ReactNode[] {
   const pieces: ReactNode[] = [];
   const tokens = /\*\*([^\n]+?)\*\*|`([^`\n]+)`/g;

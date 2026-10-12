@@ -32,7 +32,7 @@ function safeImageError(error: unknown): string {
   return "图片生成或保存失败，文字回复已保留。可以单独重试图片。";
 }
 
-/** 主人，一次调用只生成一张图片。如果失败会记录在聊天元数据中，已接受的文字回复不会被撤销。 */
+/** 一次调用我只为主人生成一张图片。若生成失败，原因会记录在聊天元数据中；已通过的文字回复不会被撤回呢。 */
 export async function attachChatImage(agent: Agent, message: ChatMessage, request: string, userMessage: string, dependencies: ChatImageDependencies): Promise<"ready" | "failed" | "unchanged"> {
   if (message.role !== "assistant" || message.checked !== true) throw new PalaceError("只能为已通过审查的角色回复生成图片。");
   if (message.image?.status === "ready") return "unchanged";

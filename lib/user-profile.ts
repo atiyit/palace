@@ -9,7 +9,7 @@ export function userAvatarUrl(value: unknown): string | undefined {
   return typeof value === 'string' && /^\/api\/portraits\/user-profile(?:\?v=[a-zA-Z0-9_-]{1,100})?$/.test(value) ? value : undefined;
 }
 
-/** 主人，仅使用您明确编写的个人资料；绝不会从无关消息中推断个人信息。 */
+/** 主人，这里只取用您亲手写下的个人资料；我不会从无关消息中擅自推断个人信息的。 */
 export function userProfileContext(state: Pick<AppState, 'userProfile'>) {
   const profile = state.userProfile;
   if (!profile) return undefined;

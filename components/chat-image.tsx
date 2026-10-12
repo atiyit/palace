@@ -18,7 +18,7 @@ export function ChatImageAttachment({ image, agentName, busy, retrying, imageRea
   imageReady: boolean;
   onRetry: () => Promise<void>;
 }) {
-  // 主人，只有应用自身的头像路由才能从持久化的模型数据中加载或打开图片。
+  // 只有应用自身的头像路由才能从持久化的模型数据中加载或打开图片，别的门牌我一概不认哦。
   const url = image.url && /^\/api\/portraits\/chat-[a-zA-Z0-9_-]{1,95}$/.test(image.url) ? image.url : null;
   const [loadFailed, setLoadFailed] = useState(false);
   const [reload, setReload] = useState(0);

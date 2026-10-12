@@ -6,7 +6,7 @@ export function contentValidationOptions(state: Pick<AppState, 'debugOptions'>):
   return { contentRulesEnabled: state.debugOptions?.contentRulesEnabled !== false };
 }
 
-/** 主人，公开策略会跟随模型输入一起传递；但服务端仍会独立验证每一条回复哦。 */
+/** 请容我把内容策略随模型输入一并递过去——不过主人请放心，服务端仍然会对每一条回复独立做校验哦。 */
 export function contentValidationPolicy(state: Pick<AppState, 'debugOptions'>) {
   const { contentRulesEnabled } = contentValidationOptions(state);
   return {

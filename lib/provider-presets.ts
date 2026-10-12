@@ -1,4 +1,4 @@
-/** 主人，这里只存放公开的连接示例，凭证信息不会出现在这份目录中。 */
+/** 这份目录里只存放公开的连接示例，相当于贴在前台的迎客指引——凭证信息绝不会出现在这里呀。 */
 export type ProviderProtocol = "openai-chat" | "openai-responses" | "anthropic" | "ollama";
 export type PresetProviderKind = "text" | "image";
 export interface ProviderConnectionDraft {
@@ -41,7 +41,7 @@ export const PROVIDER_PRESETS: Readonly<Record<PresetProviderKind, readonly Prov
   ],
 };
 
-/** 主人，选择任何预设时会丢弃未保存的凭证，而不是把它转发给其他服务。 */
+/** 主人切换预设时，我会把尚未保存的凭证丢弃掉，而不是转交给其他服务——请放心交给我处理呢。 */
 export function applyProviderPreset<T extends ProviderConnectionDraft>(draft: T, preset: ProviderPreset): T {
   return { ...draft, ...preset.connection, apiKey: "", ...(preset.connection && "visionEnabled" in draft ? { visionEnabled: false } : {}) };
 }
@@ -53,7 +53,7 @@ export function providerOrigin(value: string, local = false): string | null {
   } catch { return null; }
 }
 
-/** 主人，这里只做客户端可见的本地地址约束镜像；服务端的校验仍然是权威的。 */
+/** 这里只是替主人在客户端做一道本地地址格式的预检镜像；真正的把关还是由服务端的校验说了算哦。 */
 export function isLocalProviderAddress(value: string): boolean {
   try {
     const input = value.trim();

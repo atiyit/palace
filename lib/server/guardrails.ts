@@ -14,18 +14,18 @@ export const actionSchema = z.object({
 });
 export type GeneratedAction = z.infer<typeof actionSchema>;
 
-/** 主人，通过关键词命中和时间顺序对记忆做简单相关性打分，取前 14 条。
- * 中文按 2–4 字分词、英文按 3 字母以上单词匹配，越靠后的记忆有微小时序加分。
- * 这不是语义搜索，只是轻量关键词召回哦。 */
+/** 请容我用关键词和时间顺序替主人挑选相关记忆，最多取前 14 条。
+ * 中文按 2–4 字分词、英文按 3 字母以上单词来匹配，越靠后的记忆会有微小的时序加分。
+ * 这只是轻量的关键词召回，并非语义搜索呢。 */
 export function relevantMemories(agent: Agent, context: string): Memory[] {
   const words = context.toLowerCase().match(/[a-z]{3,}|[\u4e00-\u9fff]{2,4}/g) || [];
   return agent.memories.map((memory, index) => ({ memory, score: words.reduce((sum, word) => sum + (memory.content.toLowerCase().includes(word) ? 4 : 0), 0) + index / Math.max(1, agent.memories.length) }))
     .sort((a, b) => b.score - a.score).slice(0, 14).map(({ memory }) => memory);
 }
 
-/** 主人，组装当前角色的私有上下文：策略、相关记忆、任命、近 12 条聊天和注意力信号。
- * 聊天附件和图片只传递元数据标识，不传递像素数据。
- * tools 默认为空数组，由调用方按场景注入可用工具。 */
+/** 我先替主人把当前角色的私有上下文整理到托盘上：策略、相关记忆、任命、近 12 条聊天和注意力信号。
+ * 聊天附件和图片只放元数据标识，不搬运像素数据。
+ * tools 默认是空数组，由调用方按场景注入可用工具哦。 */
 export function ownContext(agent: Agent, context: string) {
   return {
     strategy: agent.strategy, longTermMemories: relevantMemories(agent, context),

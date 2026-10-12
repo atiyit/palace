@@ -3,7 +3,7 @@ import { PalaceError } from "./errors.ts";
 interface StateRow { state_json: string; version: number; request_ids_json: string; }
 export const STATE_LEASE_MS = 360_000;
 
-/** 主人，不依赖特定绑定实现，这样租约和幂等行为可以用 SQLite 来测试。 */
+/** 这里我特意不依赖特定的数据库绑定实现，这样租约和幂等行为用 SQLite 也能替主人跑测试哦。 */
 export function stateRepository(db: D1Database) {
   async function ensureState<T>(userId: string, initial: () => T): Promise<void> {
     await db.prepare("INSERT OR IGNORE INTO palace_states (user_id,state_json,version,lease_until,request_ids_json,updated_at) VALUES (?,?,0,0,'[]',?)")

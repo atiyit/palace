@@ -7,10 +7,10 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
 
-/** 主人，只有显式启用视觉功能时，图片输入才会作为含像素的内容发送给服务商。 */
-/** 主人，根据协议类型（OpenAI Chat/Responses、Anthropic、Ollama）构建文本请求。
- * 视觉图片仅在 visionEnabled 时附加（最多 2 张），并验证格式和大小。
- * 仅在 Chat Completions 分支中，匹配 o 系列或 GPT-5 及后续编号的模型使用 max_completion_tokens，且不设 temperature。 */
+/** 主人没有显式启用视觉功能的话，图片就安安静静待在后台；只有开了开关，含像素的内容才会被送往服务商呢。 */
+/** 我来替主人按协议类型（OpenAI Chat/Responses、Anthropic、Ollama）把文本请求打包好。
+ * 视觉图片仅在 visionEnabled 时附加，最多 2 张，格式和大小我都会逐一验证。
+ * 另外，仅在 Chat Completions 分支中，匹配 o 系列或 GPT-5 及后续编号的模型时使用 max_completion_tokens 且不设 temperature 哦。 */
 export function buildTextRequest(config: ProviderConfig, system: string, input: unknown, maxTokens: number, images: TextImageInput[] = []): TextRequest {
   const protocol = config.protocol || 'openai-chat';
   const selected = config.visionEnabled ? images.slice(0, 2) : [];
@@ -44,7 +44,7 @@ export function buildTextRequest(config: ProviderConfig, system: string, input: 
   } };
 }
 
-/** 主人，思维链/推理区块绝不会被当作角色的正式回复来解析。 */
+/** 思维链和推理区块只是模型的草稿纸——我绝不会把它们当作角色的正式回复来解析呢。 */
 export function extractTextResult(protocol: ProviderConfig['protocol'], value: unknown): { text: string; tokens: number; finishReason?: string } {
   const result = record(value);
   if (result.error || result.type === 'error') throw new PalaceError('模型服务返回了错误；请检查模型名称、协议和图片识别支持情况。', 502, 'PROVIDER_ERROR');

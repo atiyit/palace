@@ -119,7 +119,7 @@ export function ProviderSettings({ busy, onSaved, onBusyChange }: {
       if (!response.ok || result.error) throw new Error(result.error || "配置尚未保存，请重试。");
       if (!result.settings) throw new Error("未收到保存后的配置，请重新读取确认。");
       setSettings(result.settings);
-      // 主人，立即清除已提交的密钥内容；保留另一个渠道尚未保存的草稿。
+      // 已提交的密钥内容我立刻替主人擦干净；另一个渠道尚未保存的草稿会好好保留着呢。
       setDrafts(current => ({ ...current, [kind]: toDraft(result.settings![kind]) }));
       setPresets(current => ({ ...current, [kind]: detectProviderPreset(kind, result.settings![kind]) }));
       setNotices(current => ({ ...current, [kind]: { text: action === "reset" ? `${LABELS[kind]}已恢复原始默认配置。` : `${LABELS[kind]}配置已保存并生效。` } }));

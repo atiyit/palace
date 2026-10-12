@@ -40,7 +40,7 @@ try {
   await bootstrapLocalDefaults(input);
   process.stdout.write('本地默认 API 配置已加密保存。\n');
 } catch (error) {
-  // 主人，不打印输入内容、错误原因链或可能含有敏感信息的 JSON 片段。
+  // 请放心，我不会把输入内容、错误原因链或可能含有敏感信息的 JSON 片段打印出来。
   const message = error instanceof SyntaxError ? '初始化 JSON 无效。' : error instanceof Error ? error.message : '本地初始化失败。';
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;

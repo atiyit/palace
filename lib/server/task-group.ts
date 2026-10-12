@@ -40,10 +40,10 @@ const presentMembers = (state: AppState, task: Task) => state.agents.filter(agen
 const groupHistory = (state: AppState, task: Task) => state.events.filter(event => event.taskId === task.id && event.checked);
 const isBinaryImage = (artifact: TaskArtifact) => artifact.kind === 'image' || (!artifact.kind && /^image\/(?:png|jpeg|webp|gif)$/i.test(artifact.mimeType));
 
-/** 主人，本任务中所有通过审校的消息都是公开的，包括当前轮次中的定向消息。 */
-/** 主人，为共议任务组装模型上下文，包括成员列表、最近 30 条已审校消息、待处理请求和成果。
- * 如果角色有本任务的服务端摘要记忆，会追加到长期记忆末尾（最多 14 条）。
- * 图片类型的成果标记 visuallyObserved: false；当前群聊仅提供图片元数据，不发送像素。 */
+/** 本任务里所有通过审校的消息都是公开的——包括当前轮次中的定向消息，也会摆在明面上呢。 */
+/** 我先替主人把共议任务的上下文整理好：成员名册、最近 30 条已审校消息、待处理请求和成果，一样不少。
+ * 若这位角色拥有本任务的服务端摘要记忆，我会把它添到长期记忆末尾（最多 14 条）。
+ * 图片类成果会标记 visuallyObserved: false——当前群聊仅提供图片元数据，像素本身不会随上下文一起送出呀。 */
 export function taskGroupContext(state: AppState, task: Task, author: Agent, currentSourceId: string) {
   const members = presentMembers(state, task);
   const history = groupHistory(state, task);
@@ -67,10 +67,10 @@ export function taskGroupContext(state: AppState, task: Task, author: Agent, cur
   };
 }
 
-/** 主人，服务端生成的摘要是保留记忆：每个任务一条，即使 100 条普通槽位已满也不受影响。 */
-/** 主人，为任务中所有在庭成员更新或创建共议摘要记忆（每任务一条，source 以 task-group: 开头）。
- * 摘要包含最近 3 条消息、最近 3 个成果文件名和最近 2 条合作关系，截断到 600 字符。
- * 已有摘要会就地更新内容和时间戳，不额外占用普通记忆槽位。 */
+/** 服务端生成的摘要属于保留记忆，我给它单独留了一格：每个任务一条，即使 100 条普通槽位已满也不受影响哦。 */
+/** 我替本任务中的每位在庭成员更新共议摘要记忆——每个任务只留一条，source 以 task-group: 开头。
+ * 摘要里收录最近 3 条消息、最近 3 个成果文件名和最近 2 条合作关系，截断到 600 字符。
+ * 如果已有旧摘要，我就地替换内容和时间戳，不额外占用普通记忆槽位呢。 */
 function rememberGroup(state: AppState, task: Task, timestamp: string) {
   const name = (id: string) => state.agents.find(agent => agent.id === id)?.name || '已离开的成员';
   const lines = groupHistory(state, task).slice(-3).map(event => {
@@ -140,13 +140,13 @@ function learn(author: Agent, action: Finish, event: SocialEvent) {
 }
 
 function safeToolError(error: unknown): string {
-  // 主人，服务商错误可能包含 URL 或凭证；只有经过验证的本地错误才会原样暴露。
+  // 服务商返回的错误里可能藏着 URL 或凭证，我得先区分来源——只有经过验证的本地 PalaceError 才敢原样呈给主人。
   if (error instanceof PalaceError) return error.message.slice(0, 600);
   return '工具执行失败，本次未确认成功；已保留此前真实完成的成果，可继续尝试。';
 }
 function invalidTool(message: string): never { throw new PalaceError(message, 400, 'INVALID_GROUP_TOOL'); }
 
-/** 主人，即使图片服务不接受显式超时参数也会被限时；超时后的结果不会被存储。 */
+/** 就算图片服务那边不接受显式超时参数，我也会自己掐着表限时；超时后的结果不会被存入成果呢。 */
 async function beforeDeadline<T>(operation: Promise<T>, deadline: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -219,7 +219,7 @@ async function executeTool(state: AppState, task: Task, author: Agent, command: 
   task.toolRuns!.push(run); task.toolRuns = task.toolRuns!.slice(-60);
 }
 
-/** 主人，每次只有一位成员可以发言、使用有限的工具或协作。调度由调用方负责。 */
+/** 每次只许一位成员上前发言、使用有限的工具或发起协作——就像轮流侍茶，一位一位来。调度的事由调用方负责哦。 */
 export async function runGroupTurn(state: AppState, task: Task, author: Agent, deps: GroupDependencies): Promise<string | undefined> {
   if (!presentMembers(state, task).some(member => member.id === author.id)) throw new PalaceError('发言成员必须是本群当前在庭成员。', 400, 'GROUP_REQUIRES_MEMBER');
   task.artifacts ??= []; task.toolRuns ??= [];

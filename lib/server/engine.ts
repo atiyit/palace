@@ -65,7 +65,7 @@ function imageIdentity(agent: Agent): Record<string, unknown> {
 
 function saveMemory(agent: Agent, memory: Omit<Memory, "id" | "createdAt">): void {
   if (agent.memories.some(item => item.content === memory.content && item.kind === memory.kind)) return;
-  // 主人，100 条普通记忆满后不再追加；已有条目可在界面管理，不会被静默裁剪。
+  // 普通记忆的账本写满 100 条后就不再追加了；已有条目可以在界面管理，不会被我静默裁剪掉哦。
   if (personalMemoryCount(agent) >= 100) return;
   agent.memories.push({ ...memory, id: id(), createdAt: now() });
 }
@@ -74,9 +74,9 @@ function recordFeedback(state: AppState, agent: Agent, kind: "like" | "hire"): v
   saveMemory(agent, { kind: "preference", content: getPromptText(kind === "hire" ? "feedback.hire" : agent.liked ? "feedback.like" : "feedback.unlike", state.promptOverrides), source: `用户${kind === "hire" ? "邀请" : "偏好操作"} · ${now()}` });
 }
 
-/** 主人，这是带审校的行动生成核心循环：生成 → 结构校验 → 图片权限检查 → 来源验证 → 人设审校。
- * 最多尝试两次（含首次生成）；审校可能误判，首次失败后会尽量携带修正提示重试。
- * 视觉输入同时传递给生成和审校两个模型调用。 */
+/** 主人，请把最核心的行动审校循环交给我吧——流程是：生成 → 结构校验 → 图片权限检查 → 来源验证 → 人设审校。
+ * 最多尝试两次（含首次生成）；审校有可能误判，首次失败后我会尽量携带修正提示再试一轮。
+ * 视觉输入会同时传递给生成和审校两个模型调用呢。 */
 async function checkedAction(state: AppState, agent: Agent, input: Record<string, unknown>, allowedSources: Set<string>, validate?: (action: GeneratedAction) => GeneratedAction, images: TextImageInput[] = []): Promise<{ action: GeneratedAction | null; reason?: string }> {
   const social = dailyContext(state, agent, String(input.currentSourceId || 'context'));
   const userProfile = userProfileContext(state);
@@ -122,9 +122,9 @@ async function checkedAction(state: AppState, agent: Agent, input: Record<string
   return { action: null, reason: correction };
 }
 
-/** 主人，将通过审校的行动中的记忆和修订策略提交到角色的持久状态。
- * 重复内容（相同 kind + content）不会重复存储。
- * 策略只在实际发生变化时才保存一条 strategy 类型记忆。 */
+/** 我来替主人把通过审校的行动中的记忆和修订策略归档到角色的持久状态里。
+ * 重复内容（相同 kind + content）不会重复存储，账本上不写两遍一样的。
+ * 策略只在实际发生变化时才记一笔 strategy 类型的记忆呢。 */
 function commitLearning(agent: Agent, action: GeneratedAction, sourceId: string): void {
   for (const memory of action.memories) saveMemory(agent, memory);
   if (action.revisedStrategy && action.revisedStrategy !== agent.strategy) {
@@ -497,7 +497,7 @@ export async function performAction(state: AppState, payload: ActionPayload, use
     default: throw new PalaceError("不支持的操作。", 400);
   }
   state.updatedAt = now();
-  // 主人，近期任务历史有上限；长期记忆另行存储，不受此裁剪影响。
+  // 近期任务历史有上限，超出的旧记录会被我整理掉；长期记忆另行存储，不受这里的裁剪影响哦。
   if (state.tasks.length > 30) {
     const keep = new Set(state.tasks.filter(task => task.status !== "completed" || task.artifacts?.length).map(task => task.id));
     state.tasks.slice(-20).forEach(task => keep.add(task.id));

@@ -1,4 +1,4 @@
-/** 主人，这份配置由设置界面与服务端图片合成共享，不会引入凭证信息。 */
+/** 这份配置是设置界面与服务端图片合成共用的公开目录，我不会把任何凭证信息夹带进来呀。 */
 export type ImagePromptStyle = "default" | "novelai" | "gpt-image" | "custom";
 export const MAX_CUSTOM_IMAGE_PROMPT_CHARS = 6000;
 export const IMAGE_PROMPT_VARIABLES = ["prompt", "name", "age", "species", "form", "appearance", "traits", "request", "userMessage"] as const;
@@ -21,9 +21,9 @@ function valueText(value: unknown): string {
 }
 
 /**
- * 主人，这个函数在框架组装完基础图片提示词后只执行一次。
- * 变量值是字面文本：用户原文中的花括号序列不会被二次求值。
- * 未知占位符会原样保留，不会悄悄删掉主人写的自定义文字哦。
+ * 主人，框架组装完基础图片提示词后，这个函数只替您执行一次模板替换。
+ * 变量值是字面文本——用户原文里的花括号序列不会被二次求值呢。
+ * 未识别的占位符会原样保留，我不会擅自删掉主人写的自定义文字哦。
  */
 export function renderImagePrompt(
   basePrompt: string,
@@ -36,7 +36,7 @@ export function renderImagePrompt(
   const supported = new Set<string>(IMAGE_PROMPT_VARIABLES);
   return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (original, name: string) => {
     if (!supported.has(name)) return original;
-    // 主人，已组装的基础提示词才是权威来源，即使调用方传了同名 prompt 变量也不采用。
+    // 已组装的基础提示词才是「prompt」的权威来源——即使调用方另传了同名变量，我也只认这一份呢。
     return name === "prompt" ? basePrompt : valueText(variables[name]);
   });
 }

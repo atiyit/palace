@@ -3,7 +3,7 @@ import type { PromptView } from "./debug-types.ts";
 export interface PromptDefinition { id: string; title: string; category: string; description: string; defaultText: string; variables: string[]; }
 export const MAX_PROMPT_CHARS = 16000;
 export const MAX_TOTAL_PROMPT_CHARS = 80000;
-/** 主人，这里只剥离确切的废弃令牌；普通用户文本和其他占位符会原样保留。 */
+/** 我只替主人剥掉确切的废弃令牌；普通用户文本和其他占位符都会原样保留，一个字也不多动呢。 */
 export function stripDeprecatedPromptTokens(text: string): string {
   return text.replaceAll("{{adultBasis}}", "");
 }

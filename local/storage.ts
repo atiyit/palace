@@ -43,7 +43,7 @@ export async function readLocalDefaults(secret: string): Promise<Record<Provider
   return result;
 }
 
-/** 主人，只有初始化引导流程从 stdin 读取密钥；明文密钥不会被写入磁盘。 */
+/** 主人，请把密钥的事交给我吧——只有初始化引导流程从 stdin 读取密钥；明文密钥不会被写入磁盘的。 */
 export async function bootstrapLocalDefaults(input: BootstrapInput): Promise<void> {
   const path = join(DATA_DIRECTORY, "default-providers.json");
   if (existsSync(path) && input.action !== "replace") throw new Error("本地默认配置已存在，未覆盖。需要替换时显式传入 action: replace。");
@@ -68,7 +68,7 @@ export async function bootstrapLocalDefaults(input: BootstrapInput): Promise<voi
 
 type BindValue = string | number | null | Uint8Array;
 
-/** 主人，这是覆盖应用仓库 API 的最小 D1 适配器，底层由真实 SQLite 驱动。 */
+/** 请容我用这个最小的 D1 适配器替主人搭好应用仓库 API 的架子，底层由真实 SQLite 驱动呢。 */
 export function localDatabase(databasePath: string, migrationsDirectory = join(PROJECT_DIRECTORY, "drizzle")): D1Database {
   privateDirectory(dirname(databasePath));
   const sqlite = new DatabaseSync(databasePath);
@@ -94,9 +94,9 @@ export function localDatabase(databasePath: string, migrationsDirectory = join(P
   return { prepare: (sql: string) => prepared(sql), exec: async (sql: string) => { sqlite.exec(sql); return { count: 0, duration: 0 }; } } as unknown as D1Database;
 }
 
-/** 主人，用本地 JSON 文件模拟 R2 Bucket 接口，默认存储在 DATA_DIRECTORY/portraits 下。
- * 所有路径经过越界检查和符号链接检测，不允许递归删除。
- * list 操作遍历目录树并返回按字典序排列的分页结果。 */
+/** 主人，我用本地 JSON 文件替您模拟了 R2 Bucket 接口，默认存储在 DATA_DIRECTORY/portraits 下。
+ * 所有路径都经过越界检查和符号链接检测，不允许递归删除哦。
+ * list 操作会遍历目录树并返回按字典序排列的分页结果。 */
 export function localBucket(root = join(DATA_DIRECTORY, "portraits")): R2Bucket {
   privateDirectory(root);
   const canonicalRoot = realpathSync(root);
@@ -133,7 +133,7 @@ export function localBucket(root = join(DATA_DIRECTORY, "portraits")): R2Bucket 
       } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
     },
     async delete(keys: string | string[]) {
-      // 主人，在删除任何文件前先验证整批路径。不执行递归文件系统删除。
+      // 删东西之前我会先把整批路径都验证一遍，请主人放心——绝不执行递归文件系统删除。
       const paths = (Array.isArray(keys) ? keys : [keys]).map(objectPath);
       for (const path of paths) {
         try { await unlink(bounded(path)); }
@@ -169,7 +169,7 @@ export function localBucket(root = join(DATA_DIRECTORY, "portraits")): R2Bucket 
 export async function clearLocalDefaults(bindings: Cloudflare.Env): Promise<void> {
   const text = defaultProvider('text');
   const image = defaultProvider('image');
-  // 主人，清除的是运行时 Symbol 缓存中持有的同一对象，而非脱离引用的快照副本。
+  // 主人，这里清除的是运行时 Symbol 缓存中持有的同一对象，而非脱离引用的快照副本呢。
   Object.assign(bindings, { LLM_API_KEY: '', IMAGE_API_KEY: '', LLM_BASE_URL: text.baseUrl, IMAGE_BASE_URL: image.baseUrl, LLM_MODEL: text.model, IMAGE_MODEL: image.model });
   const root = resolve(DATA_DIRECTORY);
   const path = resolve(root, 'default-providers.json');

@@ -15,8 +15,8 @@ async function removeObjects(bucket: R2Bucket, prefix: string, keep = new Set<st
   } while (cursor);
 }
 
-/** 主人，请在领域变更提交并持有新状态租约后再执行。
- * 失败的任务会保留在队列中可重试；删除操作本身是幂等的。 */
+/** 主人，请把这件事交给我之前，先确认领域变更已提交且持有新状态的租约哦。
+ * 万一某项任务清理失败，它会留在队列里等我下次重试；删除操作本身是幂等的，重复执行不会额外改变已完成的删除结果。 */
 export async function runPendingCleanup(userId: string, state: AppState, env: CleanupEnvironment): Promise<{ completed: number; pending: number; message?: string }> {
   let completed = 0;
   const prefix = `portraits/${encodeURIComponent(userId)}/`;
@@ -36,7 +36,7 @@ export async function runPendingCleanup(userId: string, state: AppState, env: Cl
         const keep = referencedImageIds(state);
         const keys = job.imageIds.filter(id => /^[a-zA-Z0-9_-]{1,100}$/.test(id) && !keep.has(id)).map(id => prefix + id);
         if (keys.length) await env.BUCKET.delete(keys);
-        // 主人，也会清理因历史记录裁剪而失去引用的聊天图片；保留在庭和归档角色仍引用的图片。
+        // 历史记录裁剪后失去引用的聊天图片，我也会一并替主人收拾掉；不过在庭和归档角色仍引用着的图片会好好保留呢。
         await removeObjects(env.BUCKET, prefix, keep);
       }
       state.pendingCleanup = (state.pendingCleanup || []).filter(item => item.id !== job.id);

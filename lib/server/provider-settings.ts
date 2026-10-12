@@ -47,7 +47,7 @@ export async function saveProviderSettings(userId: string, kind: ProviderKind, i
   const current = await resolveSnapshot(userId);
   const updated = prepareProviderUpdate(current[kind], input);
   if (kind === 'image' && (updated.protocol !== 'openai-chat' || input.visionEnabled !== undefined)) throw new PalaceError('图片渠道仅支持图片兼容协议，不能设置文本视觉开关。', 400, 'INVALID_PROVIDER_SETTINGS');
-  // 主人，即使是继承来的密钥也会以加密快照持久化，不会把明文写入配置存储。
+  // 即使是继承来的密钥，我也会以加密快照的形式替主人妥善保管，绝不把明文写进配置存储。
   const encryptedApiKey = await encryptApiKey(updated.apiKey, env.PROVIDER_SETTINGS_SECRET || "", userId, kind);
   await repository().upsert({ userId, kind, baseUrl: updated.baseUrl, model: updated.model, encryptedApiKey, updatedAt: new Date().toISOString(), connectionOptions: providerConnectionOptions(updated), ...(kind === 'image' ? { imageOptions: imageProviderOptions(updated.model, updated) } : {}) });
   return readPublicProviderSettings(userId);

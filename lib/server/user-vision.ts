@@ -4,7 +4,7 @@ import { loadPortraitReference } from './portrait-reference.ts';
 import type { TextImageInput } from './text-provider-adapter.ts';
 import { PalaceError } from './errors.ts';
 
-/** 主人，只加载当前用户的头像和此角色最近的用户附件；绝不访问其他私聊内容。 */
+/** 我只取当前用户的头像和此角色最近的用户附件来准备视觉上下文；其他私聊的内容，我绝不会偷看一眼哦。 */
 export async function loadChatVision(state: AppState, agent: Agent, userId: string, bucket: Pick<R2Bucket, 'get'> | undefined, enabled: boolean): Promise<{ images: TextImageInput[]; context: { enabled: boolean; images: { sourceId: string; label: string; visuallyObserved: true }[] } }> {
   if (!enabled) return { images: [], context: { enabled: false, images: [] } };
   const sources: { sourceId: string; label: string; url: string }[] = [];

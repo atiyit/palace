@@ -33,7 +33,7 @@ export interface DailyStepResult { agentId: string; event: DailyEvent; message?:
 const isPresent = (agent: Agent) => agent.hired && !agent.archivedAt;
 const activeMembers = (state: AppState) => state.agents.filter(isPresent);
 
-/** 主人，只有当前在庭的独立参与者才计入共识；已存储的支持记录不会赋予任何权限。 */
+/** 清点共识人数时，我只认当前在庭的独立参与者哦。过去存下来的支持记录虽然留在账本里，但不会赋予任何权限呢。 */
 export function privateRoleConsensus(state: AppState, proposal: RoleProposal) {
   const present = new Set(activeMembers(state).map(agent => agent.id));
   const holderActive = present.has(proposal.holderId);
@@ -51,7 +51,7 @@ function immutableCore(agent: Agent) {
     voice: agent.voice, approach: agent.approach, species: agent.species, profile: agent.profile, skills: agent.skills };
 }
 
-/** 主人，在角色上下文中，定向交流仅对双方可见；职位讨论则是公开的。 */
+/** 主人，角色上下文里的规矩是这样的：定向交流只有对话双方能看到，而关于职位的讨论则是公开的，大家都能参与。 */
 export function dailyContext(state: AppState, agent: Agent, currentSourceId: string) {
   const members = activeMembers(state);
   const publicMembers = members.map(member => ({ id: member.id, name: member.name, title: member.title,
@@ -104,7 +104,7 @@ function appendMemory(agent: Agent, memory: Omit<Memory, 'id' | 'createdAt'>, id
   agent.memories.push({ ...memory, id: id(), createdAt: now });
 }
 
-/** 主人，每回合只为一位成员生成内容，然后独立审校，通过后才更新记忆或职位提案。 */
+/** 每回合我只替一位成员端上生成的内容，然后由独立审校把关——通过之后才会更新记忆或职位提案，请主人放心。 */
 export async function dailyStep(state: AppState, deps: DailyDependencies): Promise<DailyStepResult> {
   const members = activeMembers(state);
   if (!members.length) throw new PalaceError('请先邀请至少一位成员加入庭院。', 400, 'DAILY_REQUIRES_MEMBER');
@@ -171,7 +171,7 @@ export async function dailyStep(state: AppState, deps: DailyDependencies): Promi
   return { agentId: agent.id, event, ...(!accepted ? { message: `${agent.name}这次日常发言未通过检查；已跳过并保留原有人设与记忆。` } : {}) };
 }
 
-/** 主人，只有您的审阅才能将自发共识转为正式任命，这是唯一的途径哦。 */
+/** 主人，自发共识要变成正式任命，唯一的途径就是经由您亲自审阅。这道最终确认的门牌，只有您能挂上呢。 */
 export function reviewRoleProposal(state: AppState, proposalId: string, decision: 'approve' | 'private' | 'reject', metadata?: { id: string; now: string; note?: string }): RoleProposal {
   if (!['approve', 'private', 'reject'].includes(decision)) throw new PalaceError('未知的职位审阅操作。', 400, 'INVALID_ROLE_REVIEW');
   const proposal = (state.roleProposals || []).find(item => item.id === proposalId);

@@ -10,7 +10,7 @@ function requireMember(agent: Agent): void {
 }
 
 function appointmentMemory(agent: Agent, content: string, metadata: AppointmentMetadata): void {
-  // 主人，记忆条目可能会达到上限哦；当前任命字段才是权威来源，请放心。
+  // 请容我替主人看好这本日志簿——普通记忆条目达到 100 条上限时便不再追加；真正的任命以 appointment 字段为准，这边只是留档呢。
   if (personalMemoryCount(agent) >= 100) return;
   agent.memories.push({
     id: metadata.id, kind: 'experience', content,
@@ -49,7 +49,7 @@ export function removeAppointment(agent: Agent, metadata: AppointmentMetadata): 
   );
 }
 
-/** 主人，这里只返回公开的职务信息，不会泄露私聊、记忆或暗示任何权限哦。 */
+/** 这道门牌由我替主人守着：只向外展示公开的职务信息，不夹带私聊内容和记忆，也不暗示任何权限哦。 */
 export function appointmentContext(agent: Agent): Agent['appointment'] | null {
   if (!agent.hired || !agent.appointment) return null;
   return { title: agent.appointment.title, duties: agent.appointment.duties, appointedAt: agent.appointment.appointedAt };
