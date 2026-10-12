@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480" role="img" aria-labelledby="title">
+  <title id="title">映夏 · 装饰性角色剪影占位图</title>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f5e5df"/><stop offset="1" stop-color="#e8b8a8"/></linearGradient>
+    <linearGradient id="robe" x2="1" y2="1"><stop stop-color="#db9e88"/><stop offset="1" stop-color="#a25c57"/></linearGradient>
+    <linearGradient id="hair" x2="1" y2="1"><stop stop-color="#a25c57"/><stop offset="1" stop-color="#a25c57" stop-opacity=".85"/></linearGradient>
+  </defs>
+  <rect width="360" height="480" fill="url(#bg)"/>
+  <rect x="18" y="18" width="324" height="444" rx="162" fill="none" stroke="#a25c57" stroke-opacity=".14"/>
+  <path d="M48 361V183C48 104 107 47 180 47S312 104 312 183V361" fill="none" stroke="#a25c57" stroke-opacity=".2"/>
+  <circle cx="180" cy="183" r="115" fill="#f5e5df" opacity=".63"/>
+  <circle cx="280" cy="77" r="24" fill="#fff3d8" opacity=".42"/>
+  <path d="M30 337C59 277 39 221 49 185M49 271C77 257 81 240 75 218M44 300C25 279 19 260 29 246M318 347C296 295 322 248 309 216M313 290C284 278 288 257 286 252" fill="none" stroke="#a25c57" stroke-width="1.5" stroke-opacity=".23"/>
+  <path d="M121 204C96 181 106 102 146 84C220 43 274 110 252 201L225 227H131Z" fill="url(#hair)"/>
+  <path d="M153 208H208L219 274L181 312L142 274Z" fill="#f1d3bc"/>
+  <ellipse cx="182" cy="159" rx="58" ry="75" fill="#f1d3bc"/>
+  <path d="M138 264C150 283 167 295 181 298C200 293 216 282 226 264C261 269 306 315 322 422H39C52 328 83 284 138 264Z" fill="url(#robe)"/>
+  <path d="M142 259L178 295L149 347L128 277ZM214 259L183 294L213 346L236 278Z" fill="#fff0d9" opacity=".93"/>
+  <path d="M181 302L180 416M91 323L79 407M270 324L282 407" fill="none" stroke="#fff0d9" stroke-opacity=".21" stroke-width="2"/>
+  <path d="M115 139C117 81 186 70 218 90C242 102 252 131 245 160C221 157 206 134 192 112C167 136 147 150 115 155Z" fill="url(#hair)"/>
+  <path d="M220 112L253 104" stroke="#fff3d8" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="250" cy="104" r="6" fill="#fff3d8"/>
+  <circle cx="235" cy="179" r="3" fill="#fff3d8"/>
+  <path d="M235 182V198" stroke="#fff3d8" stroke-width="2"/>
+  <circle cx="235" cy="199" r="3" fill="#fff3d8"/>
+  <path d="M154 191Q181 209 210 190" fill="none" stroke="#a25c57" stroke-opacity=".06" stroke-width="1"/>
+  <rect y="422" width="360" height="58" fill="#f5e5df"/>
+  <path d="M31 442H67M293 442H329" stroke="#a25c57" stroke-opacity=".4"/>
+  <text x="180" y="444" font-family="Georgia,serif" font-size="10" letter-spacing="3" text-anchor="middle" fill="#a25c57">CHARACTER STUDY · 02</text>
+  <text x="180" y="463" font-family="Arial,sans-serif" font-size="7" letter-spacing="2" text-anchor="middle" fill="#a25c57" opacity=".6">ILLUSTRATED PLACEHOLDER</text>
+</svg>

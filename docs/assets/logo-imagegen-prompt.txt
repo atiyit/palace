@@ -1,0 +1,18 @@
+Palace project mark
+Generation: built-in imagegen (transparent background), 2026-10-12.
+Selected output: public/brand/palace-mark.png (1254 × 1254 RGBA PNG).
+Delivery sizes: palace-mark-512.png, palace-mark-128.png, palace-mark-64.png.
+These smaller files are ordinary Lanczos resizes of the selected raster, preserving alpha.
+Concept: an open lavender heart/courtyard, three companion nodes, and a warm-gold discovery star.
+The symbol suggests affection, relationships and shared exploration without assigning a fixed ruler.
+No human figures, letters or text appear in the image.
+
+Exact generation prompt:
+Use case: logo-brand
+Asset type: original project symbol for a desktop web app, README and favicon. The project is called Palace, a cozy anime-inspired courtyard of multiple AI companions who cooperate, compete for attention, remember one another, and explore ideas together.
+Primary request: Create ONE distinctive, elegant, extremely simple emblem, no wordmark. A thick flowing lavender heart-shaped open arch surrounds a small warm-gold four-pointed discovery star. Integrate three tiny circular relationship nodes sparingly along the curved form, suggesting several companions with no fixed ruler. The negative space should feel like an open courtyard doorway and a heart at once.
+Style/medium: polished flat vector-like logo as a raster image, bold solid shapes, clean smooth edges, deliberate optical balance. Modern magical anime visual novel elegance, restrained rather than ornate.
+Composition/framing: one centered compact symbol in a square canvas, large enough to occupy approximately 80 percent of width and height, fully visible with even margins. The silhouette must remain recognizable at 32 pixels.
+Color palette: soft luminous lavender #B9A0E5 and muted warm gold #D8B974. Maximum two solid colors.
+Scene/backdrop: genuinely transparent background with alpha. No colored background, no white card, no checkerboard drawn into the image.
+Constraints: no text or letters, no border, no decorative frame, no crowns, no faces or people, no palace towers, no 3D, no gradients, no shadows, no glow, no texture, no fine filigree, no mockup, no presentation grid, no watermark. Avoid elaborate intersecting lines.

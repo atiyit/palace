@@ -1,0 +1,38 @@
+name: Verify source
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Bootstrap Windows runtime and dependencies
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/bootstrap.ps1 -PrivateRuntime -InstallOnly
+      - name: Bootstrap macOS or Linux runtime and dependencies
+        if: runner.os != 'Windows'
+        run: sh scripts/bootstrap.sh --private-runtime --install-only
+      - run: npm run doctor
+      - run: npm run release:check
+      - run: npm run test:release
+      - run: npm run test:installer
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build

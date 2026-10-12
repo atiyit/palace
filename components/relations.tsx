@@ -1,0 +1,30 @@
+"use client";
+
+import { Heart, MessageCircle, Network, Users } from "lucide-react";
+import type { Agent, AppState } from "@/lib/types";
+import { recommendationProbabilities } from "@/lib/domain";
+import { AppointmentsSummary } from "@/components/appointment-editor";
+import { hasPrivateConsensus } from "@/components/daily-life";
+
+export function RelationshipOverview({ state, onAgent, portraitOf }: { state: AppState; onAgent: (agent: Agent) => void; portraitOf: (agent: Agent) => string }) {
+  const members = state.agents.filter(a => a.hired && !a.archivedAt);
+  const active = new Set(members.map(a => a.id));
+  const probabilities = recommendationProbabilities(members, state.settings.exploration);
+  const points = members.map((a, i) => ({ a, x: 250 + Math.cos(i / Math.max(1, members.length) * Math.PI * 2 - Math.PI / 2) * (members.length === 1 ? 0 : 155), y: 205 + Math.sin(i / Math.max(1, members.length) * Math.PI * 2 - Math.PI / 2) * (members.length === 1 ? 0 : 145) }));
+  const relationships = state.relationships.filter(r => active.has(r.from) && active.has(r.to));
+  const dailyEvents = (state.dailyEvents || []).filter(e => e.checked && active.has(e.agentId) && e.targetId && active.has(e.targetId));
+  const pairs = new Map<string, { from: string; to: string; daily: number; confirmed: number; disagreements: number }>();
+  function connection(from: string, to: string) {
+    const key = [from, to].sort().join("|");
+    let pair = pairs.get(key);
+    if (!pair) { pair = { from, to, daily: 0, confirmed: 0, disagreements: 0 }; pairs.set(key, pair); }
+    return pair;
+  }
+  for (const r of relationships) connection(r.from, r.to).confirmed += 1;
+  for (const e of dailyEvents) { const pair = connection(e.agentId, e.targetId!); pair.daily += 1; if (e.kind === "disagree" || e.kind === "decline-role") pair.disagreements += 1; }
+  const edges = [...pairs.values()].map(pair => ({ ...pair, fromPoint: points.find(p => p.a.id === pair.from)!, toPoint: points.find(p => p.a.id === pair.to)! }));
+  const privateRoles = (state.roleProposals || []).filter(p => hasPrivateConsensus(p, state.agents));
+  return <div className="observation-layout"><div><div className="panel"><h2 className="panel-title"><Network size={15}/>相处与协作的轨迹</h2><p className="panel-note">连线表示实际发生过互动，不把闲谈或分歧视为服从。</p><div className="network-wrap"><svg viewBox="0 0 500 420" className="network-svg" role="img" aria-label={`${members.length} 位在场成员，${relationships.length} 次协作，${dailyEvents.length} 次定向日常互动`}><defs>{points.map(({ a }) => <clipPath id={`relation-clip-${a.id}`} key={a.id}><circle r="23"/></clipPath>)}</defs><circle cx="250" cy="205" r="146" fill="none" stroke="#ffffff05" strokeDasharray="3 8"/><circle cx="250" cy="205" r="84" fill="none" stroke="#ffffff04"/>{edges.map(edge => <line key={`${edge.from}-${edge.to}`} x1={edge.fromPoint.x} y1={edge.fromPoint.y} x2={edge.toPoint.x} y2={edge.toPoint.y} stroke={edge.confirmed ? "#b9a4d180" : "#c9b59075"} strokeWidth={Math.min(4, 1 + Math.log2(edge.daily + edge.confirmed + 1) / 2)} strokeDasharray={edge.confirmed ? undefined : "4 5"}><title>{edge.fromPoint.a.name} ↔ {edge.toPoint.a.name}：{edge.daily} 次日常互动、{edge.confirmed} 次协作，其中 {edge.disagreements} 次表达异议</title></line>)}{points.map(({ a, x, y }) => <g key={a.id} transform={`translate(${x} ${y})`} role="button" tabIndex={0} aria-label={`查看${a.name}的关系记忆`} onClick={() => onAgent(a)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAgent(a); } }} style={{ cursor: "pointer" }}><circle r="29" fill="#24212e" stroke="#b79bdd30"/><image href={portraitOf(a)} x="-23" y="-23" height="46" width="46" preserveAspectRatio="xMidYMid slice" clipPath={`url(#relation-clip-${a.id})`}/><text textAnchor="middle" y="48">{a.name.length > 7 ? `${a.name.slice(0, 6)}…` : a.name}</text></g>)}</svg></div><div className="network-legend"><span><i className="legend-dot"/>已接受协作 {relationships.length}</span><span><i className="legend-dot gold"/>日常互动 {dailyEvents.length}</span></div>{!edges.length && <p className="panel-note" style={{ textAlign: "center", marginTop: 15 }}>让她们开始日常相处或共议，实际互动会在这里留下连线。</p>}</div>
+    {edges.length > 0 && <div className="panel relation-evidence"><h2 className="panel-title"><MessageCircle size={15}/>关系的具体来处</h2>{edges.sort((a,b) => b.daily+b.confirmed-a.daily-a.confirmed).slice(0,10).map(edge => <div key={`${edge.from}-${edge.to}`} className="relation-evidence-row"><strong>{edge.fromPoint.a.name} <span>↔</span> {edge.toPoint.a.name}</strong><p>{edge.daily} 次日常互动 · {edge.confirmed} 次协作{edge.disagreements > 0 ? ` · ${edge.disagreements} 次表达异议` : ""}</p></div>)}</div>}
+    </div><div><div className="panel"><h2 className="panel-title"><Heart size={15}/>此刻的关注分布</h2><p className="panel-note">你的偏爱影响前台曝光，所有在场成员仍能参与日常交流与共议。</p>{[...members].sort((a, b) => (probabilities[b.id] || 0) - (probabilities[a.id] || 0)).map(a => <div className="influence-row" key={a.id}><img src={portraitOf(a)} alt=""/><div><div className="influence-name">{a.name}<span className="influence-interactions">{dailyEvents.filter(e => e.agentId === a.id || e.targetId === a.id).length} 次日常互动</span></div><div className="influence-track"><span style={{ width: `${(probabilities[a.id] || 0) * 100}%` }}/></div></div><span className="influence-value">{Math.round((probabilities[a.id] || 0) * 100)}%</span></div>)}</div><AppointmentsSummary members={members}/><div className="panel private-role-summary"><h2 className="panel-title"><Users size={15}/>成员间的私下共识</h2><p className="panel-note">由任职本人及另一位在场成员认可，尚未正式任命。</p>{privateRoles.length ? privateRoles.map(p => <button className="private-role-summary-row" key={p.id} onClick={() => { const holder = members.find(a => a.id === p.holderId); if (holder) onAgent(holder); }}><strong>{members.find(a => a.id === p.holderId)?.name}<span>{p.title}</span></strong><p>{p.duties}</p></button>) : <p className="appointment-none">还没有形成私下职位。新的提案会出现在「日常相处」中。</p>}</div><div className="observation-note">更多曝光和互动不会自动带来正式职位。她们可以提出安排、表示认可或拒绝，正式任命仍由你审阅。</div></div></div>;
+}

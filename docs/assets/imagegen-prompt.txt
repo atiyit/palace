@@ -1,0 +1,16 @@
+Asset: palace-cover.png
+Generator: built-in image_gen tool
+Purpose: Original cover illustration for the project's GitHub README.
+Mode: New image, no reference images, opaque background.
+
+Final generation prompt:
+Use case: illustration-story
+Asset type: original wide landscape cover illustration for an open-source multi-agent social simulation project GitHub README, 16:9 landscape.
+Primary request: A richly painted anime illustration of four distinct adult women collaborating in a cozy courtyard observatory and research studio at night, with quiet affectionate competition for the attention of the viewer seated at the shared research table. This is a story about companionship, different personalities, cooperation, and discovering the unknown together.
+Scene/backdrop: A sheltered garden courtyard opens to an immense violet starry sky. An elegant telescope, orbital model, botanical specimens and open research notebooks inhabit the studio. Paper diagrams are abstract and contain no lettering. The working table occupies the foreground, inviting the viewer to join. A warm lamp illuminates shared scientific work.
+Subjects: Exactly four clearly adult women with mature faces and adult proportions, equal narrative importance, no designated leader. A human woman with dark plum bobbed hair in a modest classic black-and-white maid dress attentively offers a cup of tea while indicating a completed research page, a playful confident smile. A tall silver-haired elf woman in a refined sage cloak leans over the star map and shows an intriguing constellation, thoughtful and reserved. An elegant humanlike android woman with natural silicone skin, ivory hair and only a subtle luminous temple detail, dressed in a muted blue practical jacket, calmly adjusts the small orbital model; her appearance is mostly human, not exposed machinery. A warm auburn-haired adult researcher in rolled sleeves and a dark waistcoat shares a discovery with the elf while glancing toward the viewer. Different facial designs, hairstyles, postures and ways of expressing attention. They are working with each other, not standing in a lineup.
+Style/medium: High-quality contemporary anime narrative key visual, expressive refined linework, layered painterly environment, delicate fabric and paper textures, attractive but grounded character design, sophisticated storybook warmth. All characters fully clothed, wholesome companionship and intellectual curiosity.
+Composition/framing: Wide cinematic three-quarter view across the research table, balanced ensemble composition and strong readable silhouettes, no single character centered as ruler. Natural varied gestures and interactions, faces large enough to read in a README banner. Layered foliage, courtyard arches and starry sky create depth. Keep the edges uncluttered.
+Lighting/mood: Soft warm golden lamplight on faces and hands against cool plum-grey night. Intimate, curious, quietly playful and hopeful.
+Color palette: Dark purple and slate grey, dusty lavender, restrained sage, soft warm gold accents.
+Constraints: No text, no letters, no logo, no watermark, no UI, no speech bubbles. No children, no childlike features, no sexual posing, no cleavage focus. Anatomically coherent hands, natural object interactions, exactly four women. No crowns or throne, no fixed leader.
