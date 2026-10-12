@@ -6,6 +6,18 @@ import { MAX_PORTRAIT_REFERENCE_BYTES, type PortraitReference } from "./portrait
 
 export const MAX_REFERENCE_PIXELS = 20_000_000;
 
+const REFERENCE_UNDESIRED_MARKS = "watermark, signature, artist name, username";
+const REFERENCE_UNDESIRED_TEXT = "text, english text, japanese text, chinese text, caption, subtitles, speech bubble, thought bubble, logo";
+
+/** 主人没要求印字时，我会同时备好 no text 与负面词；只有明确的 Text: 文案才保留文字绘制，绝不把普通聊天猜成印字要求呢。 */
+export function referenceImagePrompts(prompt: string): { prompt: string; negativePrompt: string } {
+  const explicitLettering = /(?:^|\s)Text:[ \t]*\S/.test(prompt);
+  return {
+    prompt: explicitLettering || /^\s*no text\s*,/i.test(prompt) ? prompt : `no text, ${prompt}`,
+    negativePrompt: explicitLettering ? REFERENCE_UNDESIRED_MARKS : `${REFERENCE_UNDESIRED_TEXT}, ${REFERENCE_UNDESIRED_MARKS}`,
+  };
+}
+
 export interface CharacterReferenceMetadata {
   sourceUrl: string;
   mode: "character";
@@ -67,6 +79,7 @@ export async function buildCharacterReferenceRequest(
   reference: PortraitReference,
 ) {
   const model = characterReferenceModel(configuredModel);
+  const visual = referenceImagePrompts(prompt);
   let encoded: string;
   let canvas: { width: number; height: number };
   try {
@@ -96,13 +109,13 @@ export async function buildCharacterReferenceRequest(
   };
   // 按照 NovelAI 原生接口规范，图片要以原始 base64 PNG 格式放进请求体里——这部分我替主人包好了哦。
   const body = {
-    input: prompt,
+    input: visual.prompt,
     model,
     action: "generate",
     parameters: {
       params_version: 3,
-      prompt,
-      uc: "",
+      prompt: visual.prompt,
+      uc: visual.negativePrompt,
       qualityToggle: false,
       ucPreset: 3,
       add_original_image: false,
@@ -116,14 +129,14 @@ export async function buildCharacterReferenceRequest(
       noise_schedule: "karras",
       sm: false,
       sm_dyn: false,
-      negative_prompt: "",
+      negative_prompt: visual.negativePrompt,
       v4_prompt: {
-        caption: { base_caption: prompt, char_captions: [] },
+        caption: { base_caption: visual.prompt, char_captions: [] },
         use_coords: false,
         use_order: true,
       },
       v4_negative_prompt: {
-        caption: { base_caption: "", char_captions: [] },
+        caption: { base_caption: visual.negativePrompt, char_captions: [] },
         legacy_uc: false,
       },
       director_reference_images: [encoded],

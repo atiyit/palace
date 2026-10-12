@@ -6,6 +6,8 @@ import { attachChatImage, retryChatImage, chatImageStorageKey, type ChatImageDep
 import { actionSchema, ownContext, validateImageRequest, validateTaskAction } from "../lib/server/guardrails.ts";
 import { PalaceError } from "../lib/server/errors.ts";
 import type { PortraitReference } from "../lib/server/portrait-reference.ts";
+import { getPromptText, validatePromptOverride } from "../lib/prompts.ts";
+import { renderImagePrompt } from "../lib/image-prompts.ts";
 
 function fixture() {
   const agent = createInitialState().agents[0]; agent.hired = true; agent.weight = 8; agent.chatBoost = 3;
@@ -22,6 +24,46 @@ const dependencies = (override: Partial<ChatImageDependencies> = {}): ChatImageD
   generate: async () => bytes, store: async (_image, id) => `/api/portraits/chat-${id}`, model: () => "test-image-model",
   prompt: (agent, request, message) => `${agent.appearance}; ${request}; ${message}`,
   now: () => "2026-10-12T00:00:01Z", ...override,
+});
+
+const imageVariables = {
+  age: "manufactured on 2026-10-12", species: "synthetic companion", form: "humanlike silicone-covered body",
+  appearance: "silver hair, green eyes, natural-looking artificial skin", traits: "reserved, observant",
+  userMessage: "小银，主人今天想看你穿女仆装。别把这句聊天印在图上。",
+};
+
+test("default reference prompt keeps visible identity and framing without copying chat or biography labels", () => {
+  const request = "Close-up of her hands in a maid outfit, face outside the frame.";
+  const prompt = getPromptText("chat.image.template", {}, { ...imageVariables, request });
+  for (const value of [imageVariables.appearance, imageVariables.species, imageVariables.form, request]) assert.ok(prompt.includes(value));
+  for (const value of [imageVariables.userMessage, imageVariables.age, imageVariables.traits]) assert.equal(prompt.includes(value), false);
+  assert.match(prompt, /current clothing instructions override clothing/);
+  assert.match(prompt, /For hands, focus on hands; do not add a visible face/);
+  assert.match(prompt, /Keep internal mechanisms hidden beneath skin/);
+  assert.match(prompt, /Only when the visual request explicitly requires visible words/);
+  assert.equal(prompt.includes("Text:"), false, "default instructions must not impersonate an explicit lettering request");
+  assert.ok(prompt.endsWith(request));
+});
+
+test("explicit visible words remain the final prompt content through the default reference template and built-in presets", () => {
+  const request = "The same character holds a small sign with a centered title.\nText: 欢迎回家";
+  const prompt = getPromptText("chat.image.template", {}, { ...imageVariables, request });
+  for (const style of ["default", "novelai", "gpt-image"] as const) {
+    const result = renderImagePrompt(prompt, style);
+    assert.ok(result.endsWith(request), `${style} must not append instructions after the visible words`);
+    assert.equal(result.split("Text:").length - 1, 1);
+    assert.equal(result.includes(imageVariables.userMessage), false);
+  }
+});
+
+test("saved reference template overrides retain userMessage and biography variables with literal substitution", () => {
+  const template = "  {{userMessage}}\n{{age}} | {{traits}}\n{{appearance}}\n{{request}}  ";
+  const overrides = { "chat.image.template": template };
+  const request = "Literal {{userMessage}} must not be evaluated twice.";
+  assert.equal(validatePromptOverride("chat.image.template", template), template);
+  assert.equal(getPromptText("chat.image.template", overrides, { ...imageVariables, request }),
+    `  ${imageVariables.userMessage}\n${imageVariables.age} | ${imageVariables.traits}\n${imageVariables.appearance}\n${request}  `);
+  assert.equal(overrides["chat.image.template"], template);
 });
 
 test("chat generation receives the actual portrait reference object and persists only reference metadata", async () => {

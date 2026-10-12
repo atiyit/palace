@@ -45,7 +45,11 @@ test("reference provider makes one native ZIP request and traces metadata withou
     const sent = JSON.parse(String(call.init?.body));
     assert.equal(sent.model, "nai-diffusion-4-5-full");
     assert.equal(sent.parameters.prompt, sent.input);
-    assert.equal(sent.parameters.uc, "");
+    assert.match(sent.input, /^no text,/);
+    assert.match(sent.parameters.uc, /speech bubble/);
+    assert.match(sent.parameters.uc, /watermark/);
+    assert.equal(sent.parameters.negative_prompt, sent.parameters.uc);
+    assert.equal(sent.parameters.v4_negative_prompt.caption.base_caption, sent.parameters.uc);
     assert.equal(sent.parameters.qualityToggle, false);
     assert.equal(sent.parameters.add_original_image, false);
     assert.equal(sent.parameters.director_reference_images.length, 1);
@@ -53,6 +57,8 @@ test("reference provider makes one native ZIP request and traces metadata withou
     assert.equal(result.trace[0].model, sent.model);
     assert.equal(result.trace[0].endpoint, call.url);
     assert.equal(result.trace[0].status, "ok");
+    assert.equal(result.trace[0].prompt, sent.input.replaceAll(config.apiKey, '[REDACTED]'));
+    assert.equal(result.trace[0].negativePrompt, sent.parameters.uc);
     assert.deepEqual(result.trace[0].reference, { sourceUrl: reference.sourceUrl, mode: "character", strength: 1, fidelity: 0.5, width: 1024, height: 1536 });
     const traceText = JSON.stringify(result.trace);
     assert.ok(!traceText.includes(config.apiKey));
@@ -131,6 +137,8 @@ test("preview halts after recording actual model and reference metadata with zer
     assert.equal(result.trace[0].status, "preview");
     assert.equal(result.trace[0].model, "nai-diffusion-4-5-full");
     assert.equal(result.trace[0].reference?.sourceUrl, reference.sourceUrl);
+    assert.equal(result.trace[0].prompt, "no text, preview portrait");
+    assert.match(result.trace[0].negativePrompt || '', /speech bubble/);
     assert.ok(!JSON.stringify(result.trace).includes("base64"));
   });
 });

@@ -110,10 +110,14 @@ test('real local chat-image retry uses the saved avatar through the native provi
   assert.equal(calls[0].init?.method, 'POST');
   assert.equal(new Headers(calls[0].init?.headers).get('Authorization'), 'Bearer image-test-only');
   const sent = JSON.parse(String(calls[0].init?.body)) as {
-    model: string; input: string; parameters: { director_reference_images: string[]; director_reference_descriptions: { caption: { base_caption: string } }[] };
+    model: string; input: string; parameters: { uc: string; negative_prompt: string; v4_negative_prompt: { caption: { base_caption: string } }; director_reference_images: string[]; director_reference_descriptions: { caption: { base_caption: string } }[] };
   };
   assert.equal(sent.model, 'nai-diffusion-4-5-full');
   assert.match(sent.input, /maid outfit/);
+  assert.match(sent.input, /^no text,/);
+  assert.match(sent.parameters.uc, /speech bubble/);
+  assert.equal(sent.parameters.negative_prompt, sent.parameters.uc);
+  assert.equal(sent.parameters.v4_negative_prompt.caption.base_caption, sent.parameters.uc);
   assert.equal(sent.parameters.director_reference_images.length, 1);
   assert.equal(sent.parameters.director_reference_descriptions[0].caption.base_caption, 'character');
   const sentAvatar = Buffer.from(sent.parameters.director_reference_images[0], 'base64');

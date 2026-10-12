@@ -35,6 +35,7 @@ export function beginProviderTrace(input: Omit<DebugTrace, "id" | "status">, sec
   const entry: DebugTrace = { id: crypto.randomUUID(), kind: input.kind, model: input.model, endpoint: input.endpoint, status: scope.preview ? "preview" : "pending" };
   if (input.messages) entry.messages = input.messages.map(message => ({ role: message.role, content: clean(message.content, scope.secrets) }));
   if (input.prompt !== undefined) entry.prompt = clean(input.prompt, scope.secrets);
+  if (input.negativePrompt !== undefined) entry.negativePrompt = clean(input.negativePrompt, scope.secrets);
   if (input.reference) entry.reference = { ...input.reference, sourceUrl: clean(input.reference.sourceUrl, scope.secrets) };
   if (input.protocol) entry.protocol = input.protocol;
   if (input.inputImages) entry.inputImages = redactDebugValue(input.inputImages, scope.secrets);

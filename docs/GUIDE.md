@@ -395,6 +395,10 @@ P(i) = (1 − ε) × max(0.1, w_i) / Σ max(0.1, w_j) + ε / N
 
 参考图只读当前用户自己的角色头像，保持比例并补黑边至适配器支持的画布，使用 `character` 模式、Strength 1、Fidelity 0.5；按当前请求改变服装与构图。参考能加强一致性，仍不能保证完全同脸。本项目当前使用 V4.5 的 Precise Reference 适配器；其他模型能力以官方文档及所选网关支持为准，参考调用可能增加生图费用。[NovelAI Precise Reference](https://docs.novelai.net/en/image/precisereference/)
 
+主人若遇到参考图里多出字幕或名字，NAI V4.5 适配器现在会默认加入 `no text`，并把文字、气泡、水印和签名等负面词同步发送到原生接口的 `uc`、`negative_prompt` 与 `v4_negative_prompt`。默认私聊图片模板只使用提炼后的场景要求和可见外貌，不再直接拼入整段聊天原文或档案日期。调试台的「实际组装请求」会显示最终正向和负面提示，已有的自定义模板不会被覆盖；旧图片也不会自动重画。这些设置降低多余文字出现的概率，无法保证模型每次都完全遵循。[NovelAI 无文字提示建议](https://docs.novelai.net/en/faq/#prompt-tips)
+
+如果主人明确需要海报、标牌等画面文字，请在场景描述的最后使用大小写准确的 `Text: WELCOME HOME`，文字之后不要再追加其他说明；默认角色提示也会引导模型仅在这种明确需求下输出该标记。适配器识别到非空的 `Text:` 后会保留文案、不再添加广义禁字提示，同时继续抑制水印和签名。普通聊天里提到「文字」、角色名字或引号不算印字开关。使用自定义模板时，也请把这段文案放在最终提示词末尾，避免后续指令被一起画出。[NovelAI 文字绘制说明](https://docs.novelai.net/en/image/textrendering/)
+
 ### 提示词写法
 
 固定身份应具体：人物数量、发型、发色、瞳色、饰品、服装，再加入构图与光线。官方文档说明标签有助于控制画面和保持角色特征，`visual novel art` 是 V5 的风格标签。参见 [NovelAI Tagging](https://docs.novelai.net/en/image/tags/)。

@@ -7,6 +7,7 @@ import {
   characterReferenceEndpoint,
   characterReferenceModel,
   MAX_REFERENCE_PIXELS,
+  referenceImagePrompts,
 } from "../lib/server/novelai-reference.ts";
 import type { PortraitReference } from "../lib/server/portrait-reference.ts";
 
@@ -51,10 +52,16 @@ test("native request contains real padded PNG bytes and matching character refer
   const { body, reference } = result;
   assert.equal(result.model, "nai-diffusion-4-5-full");
   assert.equal(body.model, result.model);
-  assert.equal(body.input, "same character wearing a maid outfit");
+  assert.equal(body.input, "no text, same character wearing a maid outfit");
   assert.equal(body.action, "generate");
   const parameters = body.parameters;
   assert.equal(parameters.v4_prompt.caption.base_caption, body.input);
+  assert.equal(parameters.prompt, body.input);
+  assert.match(parameters.uc, /(?:^|, )text(?:,|$)/);
+  assert.match(parameters.uc, /speech bubble/);
+  assert.match(parameters.uc, /watermark/);
+  assert.equal(parameters.negative_prompt, parameters.uc);
+  assert.equal(parameters.v4_negative_prompt.caption.base_caption, parameters.uc);
   assert.deepEqual(parameters.director_reference_descriptions, [{ caption: { base_caption: "character", char_captions: [] } }]);
   assert.deepEqual(parameters.director_reference_information_extracted, [1]);
   assert.deepEqual(parameters.director_reference_strength_values, [1]);
@@ -78,6 +85,36 @@ test("native request contains real padded PNG bytes and matching character refer
   assert.deepEqual(input.bytes, before, "stored avatar bytes stay unchanged");
   assert.ok(!("image" in parameters), "this is character reference rather than img2img");
   assert.ok(!("reference_image_multiple" in parameters), "Vibe Transfer is not mixed with Precise Reference");
+});
+
+test("reference text suppression preserves the full brief without mistaking context, names or quoted chat for lettering", () => {
+  for (const prompt of [
+    "same character, close-up hands, silicone skin, maid outfit",
+    "Context: the character said 'Hello, master', User request: 让我看看你的脸。",
+    "角色名：星璃。请不要文字、字幕或气泡。No text, no speech bubbles.",
+    "no text, same character in a garden",
+    "a character holding a blank sign. Text:   ",
+  ]) {
+    const result = referenceImagePrompts(prompt);
+    assert.ok(result.prompt.includes(prompt), "keep the user's visual brief intact");
+    assert.match(result.prompt, /^no text,/);
+    for (const tag of ["text", "caption", "speech bubble", "watermark", "signature"]) assert.ok(result.negativePrompt.split(", ").includes(tag));
+    assert.deepEqual(referenceImagePrompts(result.prompt), result, "repeat assembly must not duplicate the prefix");
+  }
+});
+
+test("explicit NovelAI lettering keeps Text at the end and avoids conflicting text suppression in all native fields", async () => {
+  const prompt = 'same character holding a sign. Text: WELCOME HOME';
+  const { body } = await buildCharacterReferenceRequest("nai-diffusion-4-5-full", prompt, await portrait());
+  assert.equal(body.input, prompt);
+  assert.equal(body.parameters.prompt, prompt);
+  assert.equal(body.parameters.v4_prompt.caption.base_caption, prompt);
+  const negative = body.parameters.uc.split(", ");
+  for (const tag of ["text", "caption", "speech bubble", "logo"]) assert.ok(!negative.includes(tag));
+  assert.ok(negative.includes("watermark"));
+  assert.equal(body.parameters.negative_prompt, body.parameters.uc);
+  assert.equal(body.parameters.v4_negative_prompt.caption.base_caption, body.parameters.uc);
+  assert.equal(body.parameters.qualityToggle, false, "server-side quality suffixes must not become part of rendered Text");
 });
 
 test("landscape and square references use supported canvases", async () => {

@@ -222,7 +222,7 @@ test('chat-image template is independently editable and faithfully interpolates 
   assert.deepEqual(definition.variables, ['age', 'species', 'form', 'appearance', 'traits', 'request', 'userMessage']);
   const prompt = getPromptText(definition.id, {}, { age: 'manufactured on 2026-10-12', species: 'synthetic', form: 'steel hands', appearance: 'jade eyes, usual teal outfit', traits: 'calm', request: 'hands close-up, maid outfit, literal {{traits}}', userMessage: '女仆装和机械手特写' });
   assert.ok(prompt.includes('hands close-up, maid outfit, literal {{traits}}'));
-  assert.ok(prompt.includes('女仆装和机械手特写'));
+  assert.equal(prompt.includes('女仆装和机械手特写'), false);
   assert.ok(prompt.includes('steel hands'));
   assert.match(prompt, /clothing instructions override clothing/);
   assert.match(prompt, /do not add a visible face/i);

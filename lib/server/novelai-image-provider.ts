@@ -113,7 +113,7 @@ export async function generateReferenceImage(
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
   const request = await buildCharacterReferenceRequest(config.model, prompt, reference);
   const endpoint = characterReferenceEndpoint(config.baseUrl, config.local);
-  const trace = beginProviderTrace({ kind: "image", model: request.model, endpoint, prompt, reference: request.reference }, config.apiKey);
+  const trace = beginProviderTrace({ kind: "image", model: request.model, endpoint, prompt: request.body.input, negativePrompt: request.body.parameters.uc, reference: request.reference }, config.apiKey);
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
